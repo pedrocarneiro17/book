@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Consolidador de Planilhas</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 680px;
+        }
+        .card {
+            border: none;
+            border-radius: 0.75rem;
+        }
+        .form-label {
+            font-weight: 500;
+        }
+        .accordion-button:not(.collapsed) {
+            background-color: #f7f7f7;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container py-5">
+        <div class="text-center mb-5">
+            <h1 class="display-5">Consolidador de Planilhas</h1>
+            <p class="lead text-muted">Envie seu arquivo Excel para iniciar o processo de conciliação.</p>
+        </div>
+
+        <div class="card p-4 shadow-sm">
+            <form action="/process" method="POST" enctype="multipart/form-data" id="uploadForm">
+                
+                <!-- 1. SELEÇÃO DO MODELO -->
+                <div class="mb-3">
+                    <label for="modelo_selecionado" class="form-label">1. Selecione o Modelo</label>
+                    <select class="form-select form-select-lg" id="modelo_selecionado" name="modelo_selecionado">
+                        <option value="" selected>-- Escolha um modelo --</option>
+                        <option value="modelo1">Modelo Santander</option>
+                    </select>
+                </div>
+
+                <!-- 2. OPÇÕES E INSTRUÇÕES (ACORDEÃO) -->
+                <div class="accordion mt-3" id="opcoesAccordion">
+                    <div class="accordion-item d-none" id="opcoesModelo1">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="false" aria-controls="collapseOne">
+                                Instruções e Filtros Opcionais
+                            </button>
+                        </h2>
+                        <div id="collapseOne" class="accordion-collapse collapse" data-bs-parent="#opcoesAccordion">
+                            <div class="accordion-body">
+                                <p>Para o correto processamento, garanta que as abas do seu arquivo Excel estejam na seguinte ordem:</p>
+                                <ol class="list-group list-group-numbered list-group-flush mb-4">
+                                    <li class="list-group-item">Livro de Saída</li>
+                                    <li class="list-group-item">Livro de Entrada</li>
+                                    <li class="list-group-item">Book Compra</li>
+                                    <li class="list-group-item">Book Venda</li>
+                                    <li class="list-group-item">Base Back Compras</li>
+                                    <li class="list-group-item">Base Back Vendas</li>
+                                </ol>
+                                <strong>Filtros de Data (Opcional):</strong>
+                                <p class="small text-muted">Selecione uma data para ignorar todos os registros a partir dela.</p>
+                                <div class="row">
+                                    <div class="col-md-6 mb-2">
+                                        <label for="data_corte_compras" class="form-label">Data de Corte Compras:</label>
+                                        <input type="date" class="form-control" id="data_corte_compras" name="data_corte_compras">
+                                    </div>
+                                    <div class="col-md-6 mb-2">
+                                        <label for="data_corte_vendas" class="form-label">Data de Corte Vendas:</label>
+                                        <input type="date" class="form-control" id="data_corte_vendas" name="data_corte_vendas">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. UPLOAD DO ARQUIVO -->
+                <div class="mb-4 mt-3">
+                    <label for="excel_file" class="form-label">2. Envie o Arquivo</label>
+                    <input class="form-control form-control-lg" type="file" id="excel_file" name="excel_file" accept=".xlsx" required>
+                </div>
+
+                <!-- BOTÃO DE ENVIO -->
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary btn-lg" id="submitButton">
+                        <span id="buttonText">Processar Arquivo</span>
+                        <span class="spinner-border spinner-border-sm d-none" id="loadingSpinner" role="status" aria-hidden="true"></span>
+                    </button>
+                </div>
+            </form>
+        </div>
+        <div class="text-center text-muted mt-3">
+            <small>O download iniciará automaticamente após o processamento.</small>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Mostra as instruções e filtros quando um modelo é selecionado
+        document.getElementById('modelo_selecionado').addEventListener('change', function() {
+            var opcoesDiv = document.getElementById('opcoesModelo1');
+            if (this.value === 'modelo1') {
+                opcoesDiv.classList.remove('d-none');
+            } else {
+                opcoesDiv.classList.add('d-none');
+            }
+        });
+
+        // Lógica do botão de "Processando..."
+        document.getElementById('uploadForm').addEventListener('submit', function() {
+            var button = document.getElementById('submitButton');
+            var buttonText = document.getElementById('buttonText');
+            var spinner = document.getElementById('loadingSpinner');
+
+            button.disabled = true;
+            buttonText.textContent = 'Processando...';
+            spinner.classList.remove('d-none');
+            
+            function resetButton() {
+                button.disabled = false;
+                buttonText.textContent = 'Processar Arquivo';
+                spinner.classList.add('d-none');
+            }
+
+            var fileDownloadCheck = setInterval(function() {
+                var cookieValue = document.cookie.split('; ').find(row => row.startsWith('fileDownload='));
+                if (cookieValue) {
+                    clearInterval(fileDownloadCheck);
+                    document.cookie = "fileDownload=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                    setTimeout(resetButton, 1000); 
+                }
+            }, 1000);
+
+            setTimeout(function() {
+                if (button.disabled) {
+                    clearInterval(fileDownloadCheck);
+                    resetButton();
+                }
+            }, 60000);
+        });
+    </script>
+</body>
+</html>
