@@ -20,6 +20,7 @@ def _formatar_aba_final(workbook, config, resultado_final):
     diff_header_fill = PatternFill(start_color="808080", end_color="808080", fill_type="solid")
     header_font = Font(name='Calibri', bold=True, italic=True, color="FFFFFF", size=11)
     data_font = Font(name='Calibri', size=11)
+    red_data_font = Font(name='Calibri', size=11, color="FF0000")
     summary_font = Font(name='Calibri', bold=True, size=11)
     red_font = Font(name='Calibri', bold=True, size=11, color="FF0000")
     center_alignment = Alignment(horizontal='center', vertical='center')
@@ -48,7 +49,7 @@ def _formatar_aba_final(workbook, config, resultado_final):
         is_gray_group = False
 
         for group_key, group_df in resultado_final.groupby('temp_group_key', sort=False):
-            is_gray_group = not is_gray_group # Alterna a cor para cada novo grupo
+            is_gray_group = not is_gray_group  # Alterna a cor para cada novo grupo
 
             # Escreve as linhas de dados do grupo, aplicando a cor do bloco
             for _, data_row in group_df.iterrows():
@@ -59,12 +60,12 @@ def _formatar_aba_final(workbook, config, resultado_final):
                     for cell in ws_nova[current_row_index]:
                         cell.fill = dark_gray_fill
                 # Aplica formatação numérica e cor vermelha para valores negativos nos dados
-                for col_idx in [5, 11, 12]: # Colunas de valores (1-based index)
+                for col_idx in [5, 11, 12]:  # Colunas de valores (1-based index)
                     cell = ws_nova.cell(row=current_row_index, column=col_idx)
                     if isinstance(cell.value, (int, float)):
                         cell.number_format = '#,##0.00'
                         if cell.value < 0:
-                            cell.font = data_font if cell.font != summary_font else red_font
+                            cell.font = red_data_font if cell.font != summary_font else red_font
                 current_row_index += 1
 
             # Calcula os totais e a diferença do bloco
@@ -76,7 +77,7 @@ def _formatar_aba_final(workbook, config, resultado_final):
             summary_row_values = [''] * len(config['nomes_colunas_saida'])
             summary_row_values[4] = soma_esq if soma_esq != 0 else None
             summary_row_values[10] = soma_dir if soma_dir != 0 else None
-            summary_row_values[11] = diferenca_bloco # Coloca a diferença na última coluna
+            summary_row_values[11] = diferenca_bloco  # Coloca a diferença na última coluna
             ws_nova.append(summary_row_values)
             
             # Formata a linha de resumo
@@ -90,17 +91,17 @@ def _formatar_aba_final(workbook, config, resultado_final):
             cell_col5 = ws_nova.cell(row=current_row_index, column=5)
             cell_col5.number_format = '#,##0.00'
             if cell_col5.value and cell_col5.value < 0:
-                cell_col5.font = red_font
+                cell.font = red_font
                 
             cell_col11 = ws_nova.cell(row=current_row_index, column=11)
             cell_col11.number_format = '#,##0.00'
             if cell_col11.value and cell_col11.value < 0:
-                cell_col11.font = red_font
+                cell.font = red_font
                 
             cell_col12 = ws_nova.cell(row=current_row_index, column=12)
             cell_col12.number_format = '#,##0.00'
             if cell_col12.value and cell_col12.value < 0:
-                cell_col12.font = red_font
+                cell.font = red_font
             
             current_row_index += 1
 
@@ -108,6 +109,7 @@ def _formatar_aba_final(workbook, config, resultado_final):
     if not resultado_final.empty:
         total_col_1 = pd.to_numeric(resultado_final.iloc[:, 4], errors='coerce').sum()
         total_col_2 = pd.to_numeric(resultado_final.iloc[:, 10], errors='coerce').sum()
+        total_diff = total_col_1 - total_col_2  # Calcula a diferença total
         total_font_style = Font(name='Calibri', bold=True, size=11)
         total_red_font_style = Font(name='Calibri', bold=True, size=11, color="FF0000")
         total_fill_style = PatternFill(start_color="BFBFBF", end_color="BFBFBF", fill_type="solid")
@@ -124,6 +126,10 @@ def _formatar_aba_final(workbook, config, resultado_final):
         cell_val_2.font = total_red_font_style if total_col_2 < 0 else total_font_style
         cell_val_2.number_format = '#,##0.00'
         
+        cell_diff = ws_nova.cell(row=total_row_index, column=12, value=total_diff)
+        cell_diff.font = total_red_font_style if total_diff < 0 else total_font_style
+        cell_diff.number_format = '#,##0.00'
+        
         for cell in ws_nova[total_row_index]:
             cell.fill = total_fill_style
     
@@ -136,14 +142,14 @@ def _formatar_aba_final(workbook, config, resultado_final):
             if cell.row > 1 and not is_summary_or_total:
                 cell.font = data_font
             try:
+                if i in [5, 11, 12] and isinstance(cell.value, (int, float)):
+                    cell.number_format = '#,##0.00'
+                    if cell.value < 0:
+                        cell.font = red_data_font if cell.font != summary_font else red_font
                 char_count = len(str(cell.value or ""))
                 if char_count > max_length:
                     max_length = char_count
             except: pass
-            if i == 12 and isinstance(cell.value, (int, float)):
-                cell.number_format = '#,##0.00'
-                if cell.value and cell.value < 0:
-                    cell.font = data_font if cell.font != summary_font else red_font
         ws_nova.column_dimensions[col_letter].width = max_length + 3
 
 def _preparar_dataframe(df_raw, col_config):
