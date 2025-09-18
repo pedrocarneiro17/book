@@ -218,8 +218,8 @@ def criar_aba_resumo(workbook, p1_config, data_compras, data_vendas):
     # ENTRADA - Dados divergentes (aba principal)
     soma_livro_entrada_div, soma_book_entrada_div = get_totals_from_sheet(workbook, "Livro x Book Entrada")
     
-    # ENTRADA - Dados iguais (aba "- X")
-    soma_livro_entrada_iguais, soma_book_entrada_iguais = get_totals_from_sheet(workbook, "Livro x Book Entrada - X")
+    # ENTRADA - Dados iguais (aba "- =")
+    soma_livro_entrada_iguais, soma_book_entrada_iguais = get_totals_from_sheet(workbook, "Livro x Book Entrada - =")
     
     # ENTRADA - Totais
     total_livro_entrada = soma_livro_entrada_div + soma_livro_entrada_iguais
@@ -230,8 +230,8 @@ def criar_aba_resumo(workbook, p1_config, data_compras, data_vendas):
     # SAÍDA - Dados divergentes (aba principal)
     soma_livro_saida_div, soma_book_saida_div = get_totals_from_sheet(workbook, "Livro x Book Saída")
     
-    # SAÍDA - Dados iguais (aba "- X")
-    soma_livro_saida_iguais, soma_book_saida_iguais = get_totals_from_sheet(workbook, "Livro x Book Saída - X")
+    # SAÍDA - Dados iguais (aba "- =")
+    soma_livro_saida_iguais, soma_book_saida_iguais = get_totals_from_sheet(workbook, "Livro x Book Saída - =")
     
     # SAÍDA - Totais
     total_livro_saida = soma_livro_saida_div + soma_livro_saida_iguais
