@@ -166,18 +166,59 @@ def _preparar_dataframe(df_raw, col_config):
         col_config['nome']: 'NOME_PADRAO',
         col_config['valor']: 'VALOR_PADRAO'
     }, inplace=True)
-    df['CNPJ_PADRAO'] = df['CNPJ_PADRAO'].astype(str).str.strip().str.zfill(14)
+    df['CNPJ_PADRAO'] = df['CNPJ_PADRAO'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True).str.zfill(14)
     df['valor_arredondado'] = pd.to_numeric(df['VALOR_PADRAO'], errors='coerce').round(2)
     df.dropna(subset=['valor_arredondado'], inplace=True)
     df['indice_original'] = df.index
     return df
 
+def _capturar_transacoes_combinadas(df1, df2, indices_combinados_1, indices_combinados_2, config):
+    """Captura as transações que foram combinadas (excluídas) durante o processo de matching"""
+    # Pegar as transações que foram combinadas
+    transacoes_combinadas_1 = df1[df1['indice_original'].isin(indices_combinados_1)].copy()
+    transacoes_combinadas_2 = df2[df2['indice_original'].isin(indices_combinados_2)].copy()
+    
+    if transacoes_combinadas_1.empty and transacoes_combinadas_2.empty:
+        return pd.DataFrame(columns=config['nomes_colunas_saida'])
+    
+    # Agrupar por chave de 8 dígitos para criar pares
+    grouping_key_length = 8
+    
+    if not transacoes_combinadas_1.empty:
+        transacoes_combinadas_1['chave_agrupamento'] = transacoes_combinadas_1['CNPJ_PADRAO'].str[:grouping_key_length]
+        transacoes_combinadas_1['chave_emparelhamento'] = transacoes_combinadas_1.groupby('chave_agrupamento').cumcount()
+    if not transacoes_combinadas_2.empty:
+        transacoes_combinadas_2['chave_agrupamento'] = transacoes_combinadas_2['CNPJ_PADRAO'].str[:grouping_key_length]
+        transacoes_combinadas_2['chave_emparelhamento'] = transacoes_combinadas_2.groupby('chave_agrupamento').cumcount()
+
+    # Renomear colunas para merge
+    cols_para_renomear_1 = {c: f"{c}_esq" for c in transacoes_combinadas_1.columns if c not in ['chave_agrupamento', 'chave_emparelhamento']}
+    transacoes_combinadas_1.rename(columns=cols_para_renomear_1, inplace=True)
+    cols_para_renomear_2 = {c: f"{c}_dir" for c in transacoes_combinadas_2.columns if c not in ['chave_agrupamento', 'chave_emparelhamento']}
+    transacoes_combinadas_2.rename(columns=cols_para_renomear_2, inplace=True)
+
+    # Fazer merge das transações combinadas
+    merged_combinadas = pd.merge(
+        transacoes_combinadas_1, transacoes_combinadas_2,
+        on=['chave_agrupamento', 'chave_emparelhamento'],
+        how='outer'
+    )
+    
+    if merged_combinadas.empty:
+        return pd.DataFrame(columns=config['nomes_colunas_saida'])
+    
+    return _criar_resultado_final(merged_combinadas, config, config['nomes_colunas_saida'])
+
 def _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combinados_2):
     nomes_saida = config['nomes_colunas_saida']
     sobras_1 = df1[~df1['indice_original'].isin(indices_combinados_1)].copy()
     sobras_2 = df2[~df2['indice_original'].isin(indices_combinados_2)].copy()
+    
+    # Capturar transações que foram combinadas (excluídas)
+    transacoes_excluidas = _capturar_transacoes_combinadas(df1, df2, indices_combinados_1, indices_combinados_2, config)
+    
     if sobras_1.empty and sobras_2.empty:
-        return pd.DataFrame(columns=nomes_saida)
+        return pd.DataFrame(columns=nomes_saida), transacoes_excluidas
 
     grouping_key_length = config.get('chave_agrupamento_final', 8)
     
@@ -199,18 +240,42 @@ def _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combin
         how='outer'
     )
     
+    blocos_excluidos = pd.DataFrame()  # Para armazenar blocos excluídos por diferença pequena
+    
     if not merged_sobras.empty:
-        # --- LÓGICA DE FILTRAGEM (SEM WARNING) ---
+        # Lógica de filtragem por diferença de valores
         group_sums = merged_sobras.groupby('chave_agrupamento')[['VALOR_PADRAO_esq', 'VALOR_PADRAO_dir']].sum()
         group_sums['diferenca_bloco'] = group_sums['VALOR_PADRAO_esq'] - group_sums['VALOR_PADRAO_dir']
+        
+        # Separar blocos que serão excluídos (diferença ≤ 0.01)
+        chaves_excluidas = group_sums[abs(group_sums['diferenca_bloco']) <= 0.01].index
+        blocos_excluidos = merged_sobras[merged_sobras['chave_agrupamento'].isin(chaves_excluidas)].copy()
+        
+        # Manter apenas blocos com diferença > 0.01
         chaves_para_manter = group_sums[abs(group_sums['diferenca_bloco']) > 0.01].index
         merged_sobras = merged_sobras[merged_sobras['chave_agrupamento'].isin(chaves_para_manter)].copy()
 
         if merged_sobras.empty:
-            return pd.DataFrame(columns=nomes_saida)
+            merged_sobras = pd.DataFrame(columns=nomes_saida)
 
-    merged_sobras['Nome_Ordenacao'] = merged_sobras['NOME_PADRAO_esq'].fillna(merged_sobras['NOME_PADRAO_dir'])
-    merged_sobras = merged_sobras.sort_values(
+    # Processar dados principais
+    resultado_principal = _criar_resultado_final(merged_sobras, config, nomes_saida)
+    
+    # Processar blocos excluídos por diferença pequena
+    resultado_blocos_excluidos = _criar_resultado_final(blocos_excluidos, config, nomes_saida) if not blocos_excluidos.empty else pd.DataFrame(columns=nomes_saida)
+    
+    # Combinar ambos os tipos de exclusões
+    todos_excluidos = pd.concat([transacoes_excluidas, resultado_blocos_excluidos], ignore_index=True)
+    
+    return resultado_principal, todos_excluidos
+
+def _criar_resultado_final(merged_data, config, nomes_saida):
+    """Função auxiliar para criar o DataFrame final a partir dos dados merged"""
+    if merged_data.empty:
+        return pd.DataFrame(columns=nomes_saida)
+        
+    merged_data['Nome_Ordenacao'] = merged_data['NOME_PADRAO_esq'].fillna(merged_data['NOME_PADRAO_dir'])
+    merged_data = merged_data.sort_values(
         by=['Nome_Ordenacao', 'chave_agrupamento', 'chave_emparelhamento']
     ).reset_index(drop=True)
 
@@ -218,28 +283,68 @@ def _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combin
     def safe_get_col(df, col_name):
         return df[col_name] if col_name and col_name in df.columns else pd.Series(index=df.index)
     
-    # --- AJUSTE: A COLUNA DE DIFERENÇA VAI VAZIA NOS DADOS ---
-    # Ela será preenchida apenas na linha de resumo pela função de formatação
-    merged_sobras['diferenca_bloco'] = np.nan
+    # A coluna de diferença vai vazia nos dados - será preenchida na linha de resumo
+    merged_data['diferenca_bloco'] = np.nan
 
     col_nota_esq = f"{config['colunas_aba_1'].get('nota')}_esq" if config['colunas_aba_1'].get('nota') else None
     col_data_esq = f"{config['colunas_aba_1'].get('data_emissao')}_esq" if config['colunas_aba_1'].get('data_emissao') else None
-    final_data[nomes_saida[0]] = safe_get_col(merged_sobras, 'CNPJ_PADRAO_esq')
-    final_data[nomes_saida[1]] = safe_get_col(merged_sobras, col_nota_esq)
-    final_data[nomes_saida[2]] = safe_get_col(merged_sobras, col_data_esq)
-    final_data[nomes_saida[3]] = safe_get_col(merged_sobras, 'NOME_PADRAO_esq')
-    final_data[nomes_saida[4]] = safe_get_col(merged_sobras, 'VALOR_PADRAO_esq')
+    final_data[nomes_saida[0]] = safe_get_col(merged_data, 'CNPJ_PADRAO_esq')
+    final_data[nomes_saida[1]] = safe_get_col(merged_data, col_nota_esq)
+    final_data[nomes_saida[2]] = safe_get_col(merged_data, col_data_esq)
+    final_data[nomes_saida[3]] = safe_get_col(merged_data, 'NOME_PADRAO_esq')
+    final_data[nomes_saida[4]] = safe_get_col(merged_data, 'VALOR_PADRAO_esq')
     final_data[nomes_saida[5]] = ''
     col_contrato_dir = f"{config['colunas_aba_2'].get('num_contrato')}_dir" if config['colunas_aba_2'].get('num_contrato') else None
     col_liq_dir = f"{config['colunas_aba_2'].get('liquidacao')}_dir" if config['colunas_aba_2'].get('liquidacao') else None
-    final_data[nomes_saida[6]] = safe_get_col(merged_sobras, 'CNPJ_PADRAO_dir')
-    final_data[nomes_saida[7]] = safe_get_col(merged_sobras, col_contrato_dir)
-    final_data[nomes_saida[8]] = safe_get_col(merged_sobras, col_liq_dir)
-    final_data[nomes_saida[9]] = safe_get_col(merged_sobras, 'NOME_PADRAO_dir')
-    final_data[nomes_saida[10]] = safe_get_col(merged_sobras, 'VALOR_PADRAO_dir')
-    final_data[nomes_saida[11]] = safe_get_col(merged_sobras, 'diferenca_bloco')
+    final_data[nomes_saida[6]] = safe_get_col(merged_data, 'CNPJ_PADRAO_dir')
+    final_data[nomes_saida[7]] = safe_get_col(merged_data, col_contrato_dir)
+    final_data[nomes_saida[8]] = safe_get_col(merged_data, col_liq_dir)
+    final_data[nomes_saida[9]] = safe_get_col(merged_data, 'NOME_PADRAO_dir')
+    final_data[nomes_saida[10]] = safe_get_col(merged_data, 'VALOR_PADRAO_dir')
+    final_data[nomes_saida[11]] = safe_get_col(merged_data, 'diferenca_bloco')
     
     return pd.DataFrame(final_data)
+
+def _encontrar_melhores_matches(df1, df2, grouping_key_length):
+    """
+    Encontra os melhores pares de transações com base na menor diferença de valor,
+    dentro de cada grupo de CNPJ de 8 dígitos.
+    """
+    df1['chave_agrupamento'] = df1['CNPJ_PADRAO'].str[:grouping_key_length]
+    df2['chave_agrupamento'] = df2['CNPJ_PADRAO'].str[:grouping_key_length]
+    
+    todas_chaves = set(df1['chave_agrupamento'].dropna()).union(set(df2['chave_agrupamento'].dropna()))
+    
+    matched_indices_1 = set()
+    matched_indices_2 = set()
+    
+    for chave in todas_chaves:
+        grupo_esq = df1[df1['chave_agrupamento'] == chave].copy()
+        grupo_dir = df2[df2['chave_agrupamento'] == chave].copy()
+        
+        # Itera sobre as transações de um lado e busca o melhor par do outro
+        for _, row_e in grupo_esq.iterrows():
+            if row_e['indice_original'] in matched_indices_1:
+                continue
+                
+            melhor_diferenca = np.inf
+            melhor_par_dir_idx = None
+            
+            for _, row_d in grupo_dir.iterrows():
+                if row_d['indice_original'] in matched_indices_2:
+                    continue
+                
+                diferenca = abs(row_e['valor_arredondado'] - row_d['valor_arredondado'])
+                
+                if diferenca < melhor_diferenca:
+                    melhor_diferenca = diferenca
+                    melhor_par_dir_idx = row_d['indice_original']
+            
+            if melhor_diferenca <= 0.01 and melhor_par_dir_idx is not None:
+                matched_indices_1.add(row_e['indice_original'])
+                matched_indices_2.add(melhor_par_dir_idx)
+
+    return matched_indices_1, matched_indices_2
 
 def executar_comparacao_lado_a_lado(workbook, config):
     if workbook is None: return workbook
@@ -266,7 +371,7 @@ def executar_comparacao_lado_a_lado(workbook, config):
         condicao_match = abs(merged['valor_arredondado_1'] - merged['valor_arredondado_2']) <= 0.01
         indices_combinados_1 = set(merged.loc[condicao_match, 'indice_original_1'].dropna())
         indices_combinados_2 = set(merged.loc[condicao_match, 'indice_original_2'].dropna())
-        resultado_final = _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combinados_2)
+        resultado_final, _ = _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combinados_2)
         _formatar_aba_final(workbook, config, resultado_final)
         print(f"[{config['nome_processo']}] Processo concluído.")
         return workbook
@@ -297,18 +402,24 @@ def executar_comparacao_com_exclusao_parcial(workbook, config):
         if df1.empty and df2.empty:
             _formatar_aba_final(workbook, config, pd.DataFrame(columns=config['nomes_colunas_saida']))
             return workbook
-        df1['chave_parcial'] = df1['CNPJ_PADRAO'].str[:8]
-        df2['chave_parcial'] = df2['CNPJ_PADRAO'].str[:8]
-        merged_exato = pd.merge(df1, df2, on='CNPJ_PADRAO', how='outer', suffixes=('_1', '_2'))
-        condicao_match_exato = abs(merged_exato['valor_arredondado_1'] - merged_exato['valor_arredondado_2']) <= 0.01
-        indices_combinados_1 = set(merged_exato.loc[condicao_match_exato, 'indice_original_1'].dropna())
-        indices_combinados_2 = set(merged_exato.loc[condicao_match_exato, 'indice_original_2'].dropna())
-        merged_parcial = pd.merge(df1, df2, on='chave_parcial', how='outer', suffixes=('_1', '_2'))
-        condicao_match_parcial = abs(merged_parcial['valor_arredondado_1'] - merged_parcial['valor_arredondado_2']) <= 0.01
-        indices_combinados_1.update(merged_parcial.loc[condicao_match_parcial, 'indice_original_1'].dropna())
-        indices_combinados_2.update(merged_parcial.loc[condicao_match_parcial, 'indice_original_2'].dropna())
-        resultado_final = _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combinados_2)
+            
+        # Nova lógica de casamento de transações
+        indices_combinados_1, indices_combinados_2 = _encontrar_melhores_matches(
+            df1, df2, config.get('chave_agrupamento_final', 8)
+        )
+        
+        resultado_final, resultado_excluidos = _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combinados_2)
+        
+        # Criar a aba principal
         _formatar_aba_final(workbook, config, resultado_final)
+        
+        # Criar a aba dos dados excluídos se houver dados
+        if not resultado_excluidos.empty:
+            config_excluidos = config.copy()
+            config_excluidos['nome_aba_saida'] = config['nome_aba_saida'] + ' - ='
+            _formatar_aba_final(workbook, config_excluidos, resultado_excluidos)
+            print(f"[{config['nome_processo']}] Aba de excluídos criada: {config_excluidos['nome_aba_saida']}")
+        
         print(f"[{config['nome_processo']}] Processo concluído.")
         return workbook
     except Exception as e:

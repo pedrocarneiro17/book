@@ -69,25 +69,66 @@ def _apply_summary_styles(ws):
     ws['G4'].font = section_font_entrada
     ws['I4'].font = label_font
     
-    for cell in ws['G9:I9'][0]:
-        cell.fill = dark_gray_fill
-    ws['G9'].font = section_font_saida
-    ws['I9'].font = label_font
-    
-    for row_idx in [5, 6, 10, 11]:
+    # Aplicar estilos para as linhas de entrada (linhas 5, 6, 9, 10)
+    for row_idx in [5, 6, 9, 10]:
         ws.cell(row=row_idx, column=7).font = value_font
         cell = ws.cell(row=row_idx, column=8)
         cell.font = red_value_font if cell.value and isinstance(cell.value, (int, float)) and cell.value < 0 else value_font
         cell.number_format = '#,##0.00'
     
-    for row_idx in [7, 12]:
-        ws.cell(row=row_idx, column=7).font = diff_label_font
+    # Linhas de TOTAL para entrada (linhas 7 e 11)
+    for row_idx in [7, 11]:
+        ws.cell(row=row_idx, column=7).font = label_font  # TOTAL em negrito
         cell = ws.cell(row=row_idx, column=8)
-        cell.font = red_diff_value_font if cell.value and isinstance(cell.value, (int, float)) and cell.value < 0 else diff_value_font
+        cell.font = red_value_font if cell.value and isinstance(cell.value, (int, float)) and cell.value < 0 else label_font
         cell.number_format = '#,##0.00'
+    
+    # Linha de diferença da entrada - Divergentes (linha 13)
+    ws.cell(row=13, column=7).font = diff_label_font
+    cell = ws.cell(row=13, column=8)
+    cell.font = red_diff_value_font if cell.value and isinstance(cell.value, (int, float)) and cell.value < 0 else diff_value_font
+    cell.number_format = '#,##0.00'
+    
+    # Linha de diferença da entrada - Iguais (linha 14)
+    ws.cell(row=14, column=7).font = diff_label_font
+    cell = ws.cell(row=14, column=8)
+    cell.font = red_diff_value_font if cell.value and isinstance(cell.value, (int, float)) and cell.value < 0 else diff_value_font
+    cell.number_format = '#,##0.00'
+    
+    # Cabeçalho da seção SAÍDA (linha 16)
+    for cell in ws['G16:I16'][0]:
+        cell.fill = dark_gray_fill
+    ws['G16'].font = section_font_saida
+    ws['I16'].font = label_font
+    
+    # Aplicar estilos para as linhas de saída (linhas 17, 18, 21, 22)
+    for row_idx in [17, 18, 21, 22]:
+        ws.cell(row=row_idx, column=7).font = value_font
+        cell = ws.cell(row=row_idx, column=8)
+        cell.font = red_value_font if cell.value and isinstance(cell.value, (int, float)) and cell.value < 0 else value_font
+        cell.number_format = '#,##0.00'
+    
+    # Linhas de TOTAL para saída (linhas 19 e 23)
+    for row_idx in [19, 23]:
+        ws.cell(row=row_idx, column=7).font = label_font  # TOTAL em negrito
+        cell = ws.cell(row=row_idx, column=8)
+        cell.font = red_value_font if cell.value and isinstance(cell.value, (int, float)) and cell.value < 0 else label_font
+        cell.number_format = '#,##0.00'
+    
+    # Linha de diferença da saída - Divergentes (linha 25)
+    ws.cell(row=25, column=7).font = diff_label_font
+    cell = ws.cell(row=25, column=8)
+    cell.font = red_diff_value_font if cell.value and isinstance(cell.value, (int, float)) and cell.value < 0 else diff_value_font
+    cell.number_format = '#,##0.00'
+    
+    # Linha de diferença da saída - Iguais (linha 26)
+    ws.cell(row=26, column=7).font = diff_label_font
+    cell = ws.cell(row=26, column=8)
+    cell.font = red_diff_value_font if cell.value and isinstance(cell.value, (int, float)) and cell.value < 0 else diff_value_font
+    cell.number_format = '#,##0.00'
 
-    # Formata as células de data (I5 e I10)
-    for row_idx in [5, 10]:
+    # Formatar as células de data (I5 e I17)
+    for row_idx in [5, 17]:
         cell = ws.cell(row=row_idx, column=9)
         cell.font = data_font
         if cell.value and isinstance(cell.value, (str, pd.Timestamp)):
@@ -108,6 +149,27 @@ def get_df_from_ws(workbook_obj, sheet_name):
     except KeyError:
         print(f"Aviso: Aba '{sheet_name}' para o resumo não encontrada. Retornando DataFrame vazio.")
         return pd.DataFrame(columns=[f'col_{i}' for i in range(12)])
+
+def get_totals_from_sheet(workbook_obj, sheet_name):
+    """Busca a linha de 'TOTAL GERAL' e extrai as somas já calculadas."""
+    try:
+        ws_obj = workbook_obj[sheet_name]
+        total_livro = 0
+        total_book = 0
+        for row in ws_obj.iter_rows(values_only=True):
+            if row[0] == "TOTAL GERAL":
+                total_livro = row[4] if row[4] is not None else 0
+                total_book = row[10] if row[10] is not None else 0
+                
+                total_livro_num = pd.to_numeric(total_livro, errors='coerce')
+                total_book_num = pd.to_numeric(total_book, errors='coerce')
+                
+                return total_livro_num if not pd.isna(total_livro_num) else 0, total_book_num if not pd.isna(total_book_num) else 0
+
+        return 0, 0
+    except KeyError:
+        print(f"Aviso: Aba '{sheet_name}' para o resumo não encontrada.")
+        return 0, 0
 
 def criar_aba_resumo(workbook, p1_config, data_compras, data_vendas):
     """Cria e formata a aba de resumo consolidado a partir do workbook em memória."""
@@ -153,32 +215,29 @@ def criar_aba_resumo(workbook, p1_config, data_compras, data_vendas):
 
     # --- 2. CÁLCULOS PARA "CONCILIAÇÃO ENTRE LIVRO FISCAL X BOOK" ---
     
-    def get_totals_from_sheet(workbook_obj, sheet_name):
-        """Busca a linha de 'TOTAL GERAL' e extrai as somas já calculadas."""
-        try:
-            ws_obj = workbook_obj[sheet_name]
-            total_livro = 0
-            total_book = 0
-            for row in ws_obj.iter_rows(values_only=True):
-                if row[0] == "TOTAL GERAL":
-                    total_livro = row[4] if row[4] is not None else 0
-                    total_book = row[10] if row[10] is not None else 0
-                    
-                    total_livro_num = pd.to_numeric(total_livro, errors='coerce')
-                    total_book_num = pd.to_numeric(total_book, errors='coerce')
-                    
-                    return total_livro_num if not pd.isna(total_livro_num) else 0, total_book_num if not pd.isna(total_book_num) else 0
-
-            return 0, 0
-        except KeyError:
-            print(f"Aviso: Aba '{sheet_name}' para o resumo não encontrada.")
-            return 0, 0
-
-    soma_livro_entrada, soma_book_entrada = get_totals_from_sheet(workbook, "Livro x Book Entrada")
-    diff_entrada = soma_livro_entrada - soma_book_entrada
-
-    soma_livro_saida, soma_book_saida = get_totals_from_sheet(workbook, "Livro x Book Saída")
-    diff_saida = soma_livro_saida - soma_book_saida
+    # ENTRADA - Dados divergentes (aba principal)
+    soma_livro_entrada_div, soma_book_entrada_div = get_totals_from_sheet(workbook, "Livro x Book Entrada")
+    
+    # ENTRADA - Dados iguais (aba "- X")
+    soma_livro_entrada_iguais, soma_book_entrada_iguais = get_totals_from_sheet(workbook, "Livro x Book Entrada - X")
+    
+    # ENTRADA - Totais
+    total_livro_entrada = soma_livro_entrada_div + soma_livro_entrada_iguais
+    total_book_entrada = soma_book_entrada_div + soma_book_entrada_iguais
+    diff_entrada_divergentes = soma_livro_entrada_div - soma_book_entrada_div
+    diff_entrada_iguais = soma_livro_entrada_iguais - soma_book_entrada_iguais
+    
+    # SAÍDA - Dados divergentes (aba principal)
+    soma_livro_saida_div, soma_book_saida_div = get_totals_from_sheet(workbook, "Livro x Book Saída")
+    
+    # SAÍDA - Dados iguais (aba "- X")
+    soma_livro_saida_iguais, soma_book_saida_iguais = get_totals_from_sheet(workbook, "Livro x Book Saída - X")
+    
+    # SAÍDA - Totais
+    total_livro_saida = soma_livro_saida_div + soma_livro_saida_iguais
+    total_book_saida = soma_book_saida_div + soma_book_saida_iguais
+    diff_saida_divergentes = soma_livro_saida_div - soma_book_saida_div
+    diff_saida_iguais = soma_livro_saida_iguais - soma_book_saida_iguais
     
     # --- 3. MONTAGEM DA ABA NO EXCEL ---
     ws.merge_cells('B2:E2')
@@ -218,31 +277,79 @@ def criar_aba_resumo(workbook, p1_config, data_compras, data_vendas):
     ws.merge_cells('G2:I2')
     ws['G2'] = "Conciliação entre Livro Fiscal x Book"
     
+    # ENTRADA - Novo padrão igual ao da saída
     ws['G4'] = "ENTRADA"
     ws['I4'] = "Data do filtro"
     
-    ws['G5'] = "Livro Fiscal"
-    ws['H5'] = soma_livro_entrada
+    ws['G5'] = "Livro Fiscal divergentes"
+    ws['H5'] = soma_livro_entrada_div
     ws['I5'] = pd.to_datetime(data_compras, errors='coerce') if data_compras else None
     
-    ws['G6'] = "Book"
-    ws['H6'] = soma_book_entrada
+    ws['G6'] = "Livro Fiscal iguais"
+    ws['H6'] = soma_livro_entrada_iguais
     
-    ws['G7'] = "Diferença"
-    ws['H7'] = diff_entrada
+    ws['G7'] = "TOTAL DO LIVRO"
+    ws['H7'] = total_livro_entrada
+    
+    # Linha em branco
+    ws['G8'] = ""
+    ws['H8'] = ""
+    
+    ws['G9'] = "Book divergentes"
+    ws['H9'] = soma_book_entrada_div
+    
+    ws['G10'] = "Book iguais"
+    ws['H10'] = soma_book_entrada_iguais
+    
+    ws['G11'] = "TOTAL DO BOOK"
+    ws['H11'] = total_book_entrada
+    
+    # Linha em branco
+    ws['G12'] = ""
+    ws['H12'] = ""
+    
+    ws['G13'] = "Divergentes"
+    ws['H13'] = diff_entrada_divergentes
+    
+    ws['G14'] = "Iguais"
+    ws['H14'] = diff_entrada_iguais
 
-    ws['G9'] = "SAÍDA"
-    ws['I9'] = "Data do filtro"
+    # SAÍDA - Ajustado para nova posição
+    ws['G16'] = "SAÍDA"
+    ws['I16'] = "Data do filtro"
 
-    ws['G10'] = "Livro Fiscal"
-    ws['H10'] = soma_livro_saida
-    ws['I10'] = pd.to_datetime(data_vendas, errors='coerce') if data_vendas else None
+    ws['G17'] = "Livro Fiscal divergentes"
+    ws['H17'] = soma_livro_saida_div
+    ws['I17'] = pd.to_datetime(data_vendas, errors='coerce') if data_vendas else None
     
-    ws['G11'] = "Book"
-    ws['H11'] = soma_book_saida
+    ws['G18'] = "Livro Fiscal iguais"
+    ws['H18'] = soma_livro_saida_iguais
     
-    ws['G12'] = "Diferença"
-    ws['H12'] = diff_saida
+    ws['G19'] = "TOTAL DO LIVRO"
+    ws['H19'] = total_livro_saida
+    
+    # Linha em branco
+    ws['G20'] = ""
+    ws['H20'] = ""
+    
+    ws['G21'] = "Book divergentes"
+    ws['H21'] = soma_book_saida_div
+    
+    ws['G22'] = "Book iguais"
+    ws['H22'] = soma_book_saida_iguais
+    
+    ws['G23'] = "TOTAL DO BOOK"
+    ws['H23'] = total_book_saida
+    
+    # Linha em branco
+    ws['G24'] = ""
+    ws['H24'] = ""
+    
+    ws['G25'] = "Divergentes"
+    ws['H25'] = diff_saida_divergentes
+    
+    ws['G26'] = "Iguais"
+    ws['H26'] = diff_saida_iguais
 
     _apply_summary_styles(ws)
     print("[Resumo] Aba de Resumo criada com sucesso.")
