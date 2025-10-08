@@ -152,13 +152,57 @@ def _formatar_aba_final(workbook, config, resultado_final):
             except: pass
         ws_nova.column_dimensions[col_letter].width = max_length + 3
 
-def _preparar_dataframe(df_raw, col_config):
+def _preparar_dataframe(df_raw, col_config, processar_subtri=False):
     colunas_essenciais = [col_config['cnpj'], col_config['nome'], col_config['valor']]
     colunas_extras = [col for col in [col_config.get('nota'), col_config.get('data_emissao'), col_config.get('num_contrato'), col_config.get('liquidacao')] if col]
     colunas_para_extrair = list(dict.fromkeys(colunas_essenciais + colunas_extras))
     colunas_existentes = [col for col in colunas_para_extrair if col in df_raw.columns]
     if not all(c in df_raw.columns for c in colunas_essenciais):
         return pd.DataFrame()
+    
+    # Ajustar valor contabil subtraindo ICMS quando houver linha SUBTRI
+    if processar_subtri and 'Tipo' in df_raw.columns and 'Valor' in df_raw.columns and 'Base Cálculo' in df_raw.columns and col_config['valor'] in df_raw.columns:
+        # Criar uma cópia para não modificar o original
+        df_raw = df_raw.copy()
+        
+        ajustes_realizados = 0
+        
+        # Identificar todas as linhas SUBTRI
+        mask_subtri = df_raw['Tipo'].notna() & (df_raw['Tipo'].str.strip().str.upper() == 'SUBTRI')
+        linhas_subtri = df_raw[mask_subtri]
+        
+        # Para cada linha SUBTRI, encontrar a linha principal correspondente
+        for idx_subtri, row_subtri in linhas_subtri.iterrows():
+            base_calculo_subtri = row_subtri['Base Cálculo']
+            icms = row_subtri['Valor']
+            
+            if pd.notna(base_calculo_subtri) and pd.notna(icms):
+                base_calculo_numerico = pd.to_numeric(base_calculo_subtri, errors='coerce')
+                icms_numerico = pd.to_numeric(icms, errors='coerce')
+                
+                if pd.notna(base_calculo_numerico) and pd.notna(icms_numerico) and icms_numerico != 0:
+                    # Procurar linha que tem Valor Contábil igual à Base Cálculo da linha SUBTRI
+                    # e que NÃO seja SUBTRI
+                    mask_nao_subtri = ~mask_subtri
+                    for idx_principal, row_principal in df_raw[mask_nao_subtri].iterrows():
+                        valor_contabil = row_principal[col_config['valor']]
+                        
+                        if pd.notna(valor_contabil):
+                            valor_contabil_numerico = pd.to_numeric(valor_contabil, errors='coerce')
+                            
+                            # Comparar se os valores são iguais (com tolerância de 0.01)
+                            if pd.notna(valor_contabil_numerico) and abs(valor_contabil_numerico - base_calculo_numerico) <= 0.01:
+                                # Encontramos a linha correspondente!
+                                novo_valor = valor_contabil_numerico - icms_numerico
+                                df_raw.at[idx_principal, col_config['valor']] = novo_valor
+                                ajustes_realizados += 1
+                                # Marcar esta linha SUBTRI como processada para não processar novamente
+                                mask_subtri.loc[idx_subtri] = False
+                                break  # Sai do loop interno após encontrar o par
+        
+        if ajustes_realizados > 0:
+            print(f"[INFO] {ajustes_realizados} valores contábeis foram ajustados (ICMS SUBTRI subtraído)")
+    
     df = df_raw[colunas_existentes].copy()
     df.dropna(subset=[col_config['cnpj'], col_config['valor']], inplace=True)
     df.rename(columns={
@@ -352,18 +396,34 @@ def executar_comparacao_lado_a_lado(workbook, config):
         df1_raw = pd.read_excel(config['arquivo_excel'], sheet_name=config['indice_aba_1'], skiprows=config['pular_linhas_1'], header=0)
         cutoff_date_str = config.get('data_corte')
         date_col_name = config['colunas_aba_1'].get('data_emissao')
+        
+        # MODIFICADO: Aplicar filtro de data mas preservar linhas SUBTRI
         if cutoff_date_str and date_col_name and date_col_name in df1_raw.columns:
             try:
                 cutoff_date = pd.to_datetime(cutoff_date_str)
                 df1_raw[date_col_name] = pd.to_datetime(df1_raw[date_col_name], errors='coerce')
                 original_rows = len(df1_raw)
-                df1_raw = df1_raw[df1_raw[date_col_name] < cutoff_date].copy()
+                
+                # Preservar linhas SUBTRI ao filtrar por data
+                if 'Tipo' in df1_raw.columns:
+                    # Manter linhas que são SUBTRI OU que atendem ao filtro de data
+                    mask_subtri = df1_raw['Tipo'].notna() & (df1_raw['Tipo'].str.strip().str.upper() == 'SUBTRI')
+                    mask_data = df1_raw[date_col_name] < cutoff_date
+                    df1_raw = df1_raw[mask_subtri | mask_data].copy()
+                else:
+                    df1_raw = df1_raw[df1_raw[date_col_name] < cutoff_date].copy()
+                
                 print(f"[{config['nome_processo']}] Filtro de data aplicado. {original_rows - len(df1_raw)} linhas removidas.")
             except Exception as e:
                 print(f"Aviso: Não foi possível aplicar o filtro de data. Erro: {e}")
+        
         df2_raw = pd.read_excel(config['arquivo_excel'], sheet_name=config['indice_aba_2'], skiprows=config['pular_linhas_2'], header=0)
-        df1 = _preparar_dataframe(df1_raw, config['colunas_aba_1'])
-        df2 = _preparar_dataframe(df2_raw, config['colunas_aba_2'])
+        
+        # MODIFICADO: processar_subtri=True apenas se for aba de Vendas (índice 0)
+        processar_subtri = (config['indice_aba_1'] == 0)
+        df1 = _preparar_dataframe(df1_raw, config['colunas_aba_1'], processar_subtri=processar_subtri)
+        df2 = _preparar_dataframe(df2_raw, config['colunas_aba_2'], processar_subtri=False)
+        
         if df1.empty and df2.empty:
             _formatar_aba_final(workbook, config, pd.DataFrame(columns=config['nomes_colunas_saida']))
             return workbook
@@ -378,8 +438,68 @@ def executar_comparacao_lado_a_lado(workbook, config):
     except Exception as e:
         print(f"Ocorreu um erro fatal no {config['nome_processo']}: {e}")
         return workbook
-
+    
 def executar_comparacao_com_exclusao_parcial(workbook, config):
+    if workbook is None: return workbook
+    print(f"\n--- INICIANDO {config['nome_processo']} ---")
+    try:
+        df1_raw = pd.read_excel(config['arquivo_excel'], sheet_name=config['indice_aba_1'], skiprows=config['pular_linhas_1'], header=0)
+        cutoff_date_str = config.get('data_corte')
+        date_col_name = config['colunas_aba_1'].get('data_emissao')
+        
+        # MODIFICADO: Aplicar filtro de data mas preservar linhas SUBTRI
+        if cutoff_date_str and date_col_name and date_col_name in df1_raw.columns:
+            try:
+                cutoff_date = pd.to_datetime(cutoff_date_str)
+                df1_raw[date_col_name] = pd.to_datetime(df1_raw[date_col_name], errors='coerce')
+                original_rows = len(df1_raw)
+                
+                # Preservar linhas SUBTRI ao filtrar por data
+                if 'Tipo' in df1_raw.columns:
+                    # Manter linhas que são SUBTRI OU que atendem ao filtro de data
+                    mask_subtri = df1_raw['Tipo'].notna() & (df1_raw['Tipo'].str.strip().str.upper() == 'SUBTRI')
+                    mask_data = df1_raw[date_col_name] < cutoff_date
+                    df1_raw = df1_raw[mask_subtri | mask_data].copy()
+                else:
+                    df1_raw = df1_raw[df1_raw[date_col_name] < cutoff_date].copy()
+                
+                print(f"[{config['nome_processo']}] Filtro de data aplicado. {original_rows - len(df1_raw)} linhas removidas.")
+            except Exception as e:
+                print(f"Aviso: Não foi possível aplicar o filtro de data. Erro: {e}")
+        
+        df2_raw = pd.read_excel(config['arquivo_excel'], sheet_name=config['indice_aba_2'], skiprows=config['pular_linhas_2'], header=0)
+        
+        # MODIFICADO: processar_subtri=True apenas se for aba de Vendas (índice 0)
+        processar_subtri = (config['indice_aba_1'] == 0)
+        df1 = _preparar_dataframe(df1_raw, config['colunas_aba_1'], processar_subtri=processar_subtri)
+        df2 = _preparar_dataframe(df2_raw, config['colunas_aba_2'], processar_subtri=False)
+        
+        if df1.empty and df2.empty:
+            _formatar_aba_final(workbook, config, pd.DataFrame(columns=config['nomes_colunas_saida']))
+            return workbook
+            
+        # Nova lógica de casamento de transações
+        indices_combinados_1, indices_combinados_2 = _encontrar_melhores_matches(
+            df1, df2, config.get('chave_agrupamento_final', 8)
+        )
+        
+        resultado_final, resultado_excluidos = _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combinados_2)
+        
+        # Criar a aba principal
+        _formatar_aba_final(workbook, config, resultado_final)
+        
+        # Criar a aba dos dados excluídos se houver dados
+        if not resultado_excluidos.empty:
+            config_excluidos = config.copy()
+            config_excluidos['nome_aba_saida'] = config['nome_aba_saida'] + ' - ='
+            _formatar_aba_final(workbook, config_excluidos, resultado_excluidos)
+            print(f"[{config['nome_processo']}] Aba de excluídos criada: {config_excluidos['nome_aba_saida']}")
+        
+        print(f"[{config['nome_processo']}] Processo concluído.")
+        return workbook
+    except Exception as e:
+        print(f"Ocorreu um erro fatal no {config['nome_processo']}: {e}")
+        return workbook
     if workbook is None: return workbook
     print(f"\n--- INICIANDO {config['nome_processo']} ---")
     try:
@@ -397,8 +517,11 @@ def executar_comparacao_com_exclusao_parcial(workbook, config):
                 print(f"Aviso: Não foi possível aplicar o filtro de data. Erro: {e}")
         df2_raw = pd.read_excel(config['arquivo_excel'], sheet_name=config['indice_aba_2'], skiprows=config['pular_linhas_2'], header=0)
         
-        df1 = _preparar_dataframe(df1_raw, config['colunas_aba_1'])
-        df2 = _preparar_dataframe(df2_raw, config['colunas_aba_2'])
+        # MODIFICADO: processar_subtri=True apenas se for aba de Vendas (índice 0)
+        processar_subtri = (config['indice_aba_1'] == 0)
+        df1 = _preparar_dataframe(df1_raw, config['colunas_aba_1'], processar_subtri=processar_subtri)
+        df2 = _preparar_dataframe(df2_raw, config['colunas_aba_2'], processar_subtri=False)
+        
         if df1.empty and df2.empty:
             _formatar_aba_final(workbook, config, pd.DataFrame(columns=config['nomes_colunas_saida']))
             return workbook
