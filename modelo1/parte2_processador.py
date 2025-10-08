@@ -172,25 +172,34 @@ def _preparar_dataframe(df_raw, col_config, processar_subtri=False):
         
         # Identificar linhas SUBTRI e não-SUBTRI
         mask_subtri = df_raw['Tipo'].notna() & (df_raw['Tipo'].str.strip().str.upper() == 'SUBTRI')
+        total_subtri = mask_subtri.sum()
         
         # Filtrar apenas linhas SUBTRI válidas
         subtri_validas = df_raw[mask_subtri & df_raw['_base_calc_num'].notna() & df_raw['_icms_num'].notna()].copy()
+        total_subtri_validas = len(subtri_validas)
+        soma_icms_subtri = subtri_validas['_icms_num'].sum()
+        
+        print(f"[INFO SUBTRI] Total de linhas SUBTRI identificadas: {total_subtri}")
+        print(f"[INFO SUBTRI] Linhas SUBTRI válidas (com Base Cálculo e Valor): {total_subtri_validas}")
+        print(f"[INFO SUBTRI] Soma total dos valores ICMS (coluna Valor): {soma_icms_subtri:,.2f}")
         
         # Filtrar apenas linhas principais válidas
         principais_validas = df_raw[~mask_subtri & df_raw['_valor_cont_num'].notna()].copy()
         
         ajustes_realizados = 0
         indices_ajustados = set()
+        soma_icms_ajustado = 0.0
+        subtri_sem_correspondencia = []
         
         # Para cada linha SUBTRI, usar merge para encontrar correspondências
-        for _, row_subtri in subtri_validas.iterrows():
+        for idx_subtri, row_subtri in subtri_validas.iterrows():
             base_calc = row_subtri['_base_calc_num']
             icms = row_subtri['_icms_num']
             
             # Encontrar linhas principais com valor contábil próximo à base de cálculo
-            # Usar tolerância de 0.01
+            # MODIFICADO: Usar tolerância de 0.02 (até 2 centavos de diferença)
             candidatos = principais_validas[
-                (abs(principais_validas['_valor_cont_num'] - base_calc) <= 0.01) &
+                (abs(principais_validas['_valor_cont_num'] - base_calc) <= 0.02) &
                 (~principais_validas.index.isin(indices_ajustados))
             ]
             
@@ -203,9 +212,34 @@ def _preparar_dataframe(df_raw, col_config, processar_subtri=False):
                 df_raw.at[idx_principal, col_config['valor']] = novo_valor
                 indices_ajustados.add(idx_principal)
                 ajustes_realizados += 1
+                soma_icms_ajustado += icms
+            else:
+                # Não encontrou correspondência - guardar informações
+                col_nota = col_config.get('nota')
+                nota_info = df_raw.at[idx_subtri, col_nota] if col_nota and col_nota in df_raw.columns else 'N/A'
+                col_cnpj = col_config.get('cnpj')
+                cnpj_info = df_raw.at[idx_subtri, col_cnpj] if col_cnpj and col_cnpj in df_raw.columns else 'N/A'
+                
+                subtri_sem_correspondencia.append({
+                    'indice': idx_subtri,
+                    'nota': nota_info,
+                    'cnpj': cnpj_info,
+                    'base_calculo': base_calc,
+                    'icms': icms
+                })
         
         # Remover colunas temporárias
         df_raw.drop(columns=['_base_calc_num', '_valor_cont_num', '_icms_num'], inplace=True)
+        
+        print(f"[INFO SUBTRI] Linhas SUBTRI que encontraram correspondência: {ajustes_realizados}")
+        print(f"[INFO SUBTRI] Soma dos ICMS que foram subtraídos: {soma_icms_ajustado:,.2f}")
+        print(f"[INFO SUBTRI] Linhas SUBTRI SEM correspondência: {total_subtri_validas - ajustes_realizados}")
+        
+        # Mostrar detalhes das linhas sem correspondência
+        if subtri_sem_correspondencia:
+            print(f"\n[DETALHES] Linhas SUBTRI sem correspondência:")
+            for item in subtri_sem_correspondencia:
+                print(f"  - Índice: {item['indice']}, Nota: {item['nota']}, CNPJ: {item['cnpj']}, Base Cálculo: {item['base_calculo']:,.2f}, ICMS: {item['icms']:,.2f}")
         
         if ajustes_realizados > 0:
             print(f"[INFO] {ajustes_realizados} valores contábeis foram ajustados (ICMS SUBTRI subtraído)")
