@@ -165,55 +165,68 @@ def _preparar_dataframe(df_raw, col_config, processar_subtri=False):
         # Criar uma cópia para não modificar o original
         df_raw = df_raw.copy()
         
-        ajustes_realizados = 0
+        # Converter para numérico antecipadamente
+        df_raw['_base_calc_num'] = pd.to_numeric(df_raw['Base Cálculo'], errors='coerce')
+        df_raw['_valor_cont_num'] = pd.to_numeric(df_raw[col_config['valor']], errors='coerce')
+        df_raw['_icms_num'] = pd.to_numeric(df_raw['Valor'], errors='coerce')
         
-        # Identificar todas as linhas SUBTRI
+        # Identificar linhas SUBTRI e não-SUBTRI
         mask_subtri = df_raw['Tipo'].notna() & (df_raw['Tipo'].str.strip().str.upper() == 'SUBTRI')
-        linhas_subtri = df_raw[mask_subtri]
         
-        # Para cada linha SUBTRI, encontrar a linha principal correspondente
-        for idx_subtri, row_subtri in linhas_subtri.iterrows():
-            base_calculo_subtri = row_subtri['Base Cálculo']
-            icms = row_subtri['Valor']
+        # Filtrar apenas linhas SUBTRI válidas
+        subtri_validas = df_raw[mask_subtri & df_raw['_base_calc_num'].notna() & df_raw['_icms_num'].notna()].copy()
+        
+        # Filtrar apenas linhas principais válidas
+        principais_validas = df_raw[~mask_subtri & df_raw['_valor_cont_num'].notna()].copy()
+        
+        ajustes_realizados = 0
+        indices_ajustados = set()
+        
+        # Para cada linha SUBTRI, usar merge para encontrar correspondências
+        for _, row_subtri in subtri_validas.iterrows():
+            base_calc = row_subtri['_base_calc_num']
+            icms = row_subtri['_icms_num']
             
-            if pd.notna(base_calculo_subtri) and pd.notna(icms):
-                base_calculo_numerico = pd.to_numeric(base_calculo_subtri, errors='coerce')
-                icms_numerico = pd.to_numeric(icms, errors='coerce')
+            # Encontrar linhas principais com valor contábil próximo à base de cálculo
+            # Usar tolerância de 0.01
+            candidatos = principais_validas[
+                (abs(principais_validas['_valor_cont_num'] - base_calc) <= 0.01) &
+                (~principais_validas.index.isin(indices_ajustados))
+            ]
+            
+            if not candidatos.empty:
+                # Pegar o primeiro candidato
+                idx_principal = candidatos.index[0]
+                valor_atual = df_raw.at[idx_principal, col_config['valor']]
+                novo_valor = pd.to_numeric(valor_atual, errors='coerce') - icms
                 
-                if pd.notna(base_calculo_numerico) and pd.notna(icms_numerico) and icms_numerico != 0:
-                    # Procurar linha que tem Valor Contábil igual à Base Cálculo da linha SUBTRI
-                    # e que NÃO seja SUBTRI
-                    mask_nao_subtri = ~mask_subtri
-                    for idx_principal, row_principal in df_raw[mask_nao_subtri].iterrows():
-                        valor_contabil = row_principal[col_config['valor']]
-                        
-                        if pd.notna(valor_contabil):
-                            valor_contabil_numerico = pd.to_numeric(valor_contabil, errors='coerce')
-                            
-                            # Comparar se os valores são iguais (com tolerância de 0.01)
-                            if pd.notna(valor_contabil_numerico) and abs(valor_contabil_numerico - base_calculo_numerico) <= 0.01:
-                                # Encontramos a linha correspondente!
-                                novo_valor = valor_contabil_numerico - icms_numerico
-                                df_raw.at[idx_principal, col_config['valor']] = novo_valor
-                                ajustes_realizados += 1
-                                # Marcar esta linha SUBTRI como processada para não processar novamente
-                                mask_subtri.loc[idx_subtri] = False
-                                break  # Sai do loop interno após encontrar o par
+                df_raw.at[idx_principal, col_config['valor']] = novo_valor
+                indices_ajustados.add(idx_principal)
+                ajustes_realizados += 1
+        
+        # Remover colunas temporárias
+        df_raw.drop(columns=['_base_calc_num', '_valor_cont_num', '_icms_num'], inplace=True)
         
         if ajustes_realizados > 0:
             print(f"[INFO] {ajustes_realizados} valores contábeis foram ajustados (ICMS SUBTRI subtraído)")
     
+    # IMPORTANTE: Copiar as colunas DEPOIS do ajuste SUBTRI
     df = df_raw[colunas_existentes].copy()
     df.dropna(subset=[col_config['cnpj'], col_config['valor']], inplace=True)
+    
     df.rename(columns={
         col_config['cnpj']: 'CNPJ_PADRAO',
         col_config['nome']: 'NOME_PADRAO',
         col_config['valor']: 'VALOR_PADRAO'
     }, inplace=True)
+    
     df['CNPJ_PADRAO'] = df['CNPJ_PADRAO'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True).str.zfill(14)
+    
+    # Usar o valor ajustado para os cálculos
     df['valor_arredondado'] = pd.to_numeric(df['VALOR_PADRAO'], errors='coerce').round(2)
     df.dropna(subset=['valor_arredondado'], inplace=True)
     df['indice_original'] = df.index
+    
     return df
 
 def _capturar_transacoes_combinadas(df1, df2, indices_combinados_1, indices_combinados_2, config):
