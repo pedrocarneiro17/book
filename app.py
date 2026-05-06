@@ -1,10 +1,20 @@
 from flask import Flask, render_template, request, send_file, make_response
 import io
+import pandas as pd
 import openpyxl
 
 from modelo1.parte1_processador import executar_processo_parte1
 from modelo1.parte2_processador import executar_comparacao_lado_a_lado, executar_comparacao_com_exclusao_parcial
 from modelo1.resumo_processador import criar_aba_resumo
+
+from thunders.parte2_processador import (
+    consolidar_books,
+    executar_comparacao_thunders,
+    executar_exclusao_parcial_thunders,
+    COLUNAS_LIVRO_SAIDA,
+    NOMES_COLUNAS_SAIDA_SAIDA,
+)
+from thunders.resumo_processador import criar_aba_resumo_thunders
 
 app = Flask(__name__)
 
@@ -93,6 +103,61 @@ def process():
                         data_corte_vendas
                     )
             
+            elif modelo_selecionado == 'thunders':
+                file_bytes = uploaded_file.read()
+
+                workbook_resultado = openpyxl.load_workbook(io.BytesIO(file_bytes))
+
+                df_livro_entrada_raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=0, skiprows=5, header=0)
+                df_livro_saida_raw   = pd.read_excel(io.BytesIO(file_bytes), sheet_name=1, skiprows=5, header=0)
+
+                df_book_compra, df_book_venda = consolidar_books(io.BytesIO(file_bytes))
+
+                config_entrada_cnpj = {
+                    "nome_processo": "Thunders 2.1 - Livro x Book Entrada CNPJ",
+                    "nome_aba_saida": "Livro x Book Entrada - CNPJ",
+                    "chave_agrupamento_final": 12,
+                    "data_corte": data_corte_compras,
+                }
+                config_saida_cnpj = {
+                    "nome_processo": "Thunders 2.2 - Livro x Book Saída CNPJ",
+                    "nome_aba_saida": "Livro x Book Saída - CNPJ",
+                    "chave_agrupamento_final": 12,
+                    "data_corte": data_corte_vendas,
+                    "colunas_livro": COLUNAS_LIVRO_SAIDA,
+                    "nomes_colunas_saida": NOMES_COLUNAS_SAIDA_SAIDA,
+                }
+                config_entrada_parcial = {
+                    **config_entrada_cnpj,
+                    "nome_processo": "Thunders 3.1 - Livro x Book Entrada Exclusão",
+                    "nome_aba_saida": "Livro x Book Entrada",
+                    "chave_agrupamento_final": 8,
+                }
+                config_saida_parcial = {
+                    **config_saida_cnpj,
+                    "nome_processo": "Thunders 3.2 - Livro x Book Saída Exclusão",
+                    "nome_aba_saida": "Livro x Book Saída",
+                    "chave_agrupamento_final": 8,
+                }
+
+                workbook_resultado = executar_comparacao_thunders(
+                    workbook_resultado, config_entrada_cnpj, df_livro_entrada_raw, df_book_compra
+                )
+                workbook_resultado = executar_comparacao_thunders(
+                    workbook_resultado, config_saida_cnpj, df_livro_saida_raw, df_book_venda
+                )
+                workbook_resultado = executar_exclusao_parcial_thunders(
+                    workbook_resultado, config_entrada_parcial, df_livro_entrada_raw, df_book_compra
+                )
+                workbook_resultado = executar_exclusao_parcial_thunders(
+                    workbook_resultado, config_saida_parcial, df_livro_saida_raw, df_book_venda
+                )
+
+                if workbook_resultado:
+                    workbook_resultado = criar_aba_resumo_thunders(
+                        workbook_resultado, data_corte_compras, data_corte_vendas
+                    )
+
             else:
                 return f"Erro: Modelo '{modelo_selecionado}' não reconhecido.", 400
 
@@ -118,5 +183,5 @@ def process():
     return "Erro desconhecido.", 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8080)
+    app.run(debug=True, port=8080, use_reloader=False)
 
