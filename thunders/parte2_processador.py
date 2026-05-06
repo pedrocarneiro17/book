@@ -337,9 +337,10 @@ def _formatar_aba_final(workbook, config, resultado_final):
 
         for _, group_df in resultado_final.groupby('_group_key', sort=False):
             is_gray = not is_gray
+            group_df = group_df.drop(columns=['_group_key'])
 
             for _, data_row in group_df.iterrows():
-                row_data = data_row.drop('_group_key').tolist()
+                row_data = data_row.tolist()
                 ws.append(row_data)
                 if is_gray:
                     for cell in ws[current_row]:
