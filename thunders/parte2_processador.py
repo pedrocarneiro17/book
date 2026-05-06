@@ -44,6 +44,8 @@ COLUNAS_BOOK = {
 
 # Colunas de valor (1-based): Valor Contábil=5, Valor NF=12, Diferença=13
 _VALUE_COLS = [5, 12, 13]
+# Colunas de data (1-based): Data Emissão=1, Data do fornecimento=9
+_DATE_COLS = [1, 9]
 
 
 def consolidar_books(arquivo_bytes):
@@ -57,11 +59,27 @@ def consolidar_books(arquivo_bytes):
         return pd.DataFrame(), pd.DataFrame()
 
     frames = []
+    tipo_col = 'Tipo de operação'
     for aba in abas_book:
         try:
-            df = pd.read_excel(xls, sheet_name=aba, skiprows=1, header=0)
+            # Detecta em qual linha está o cabeçalho (pode ser linha 0 ou linha 1)
+            df_raw = pd.read_excel(xls, sheet_name=aba, header=None, nrows=3)
+            header_row = 1  # padrão
+            for i in range(min(3, len(df_raw))):
+                row_vals = df_raw.iloc[i].astype(str).tolist()
+                if any('Tipo de opera' in v for v in row_vals):
+                    header_row = i
+                    break
+            df = pd.read_excel(xls, sheet_name=aba, skiprows=header_row, header=0)
             frames.append(df)
-            print(f"[Thunders] Aba '{aba}' lida: {len(df)} linhas.")
+            if tipo_col in df.columns:
+                tipos = df[tipo_col].astype(str).str.strip()
+                n_compra = (tipos == 'Compra').sum()
+                n_venda  = (tipos == 'Venda').sum()
+                print(f"[Thunders] '{aba}': {n_compra} Compras, {n_venda} Vendas ({len(df)} linhas total)")
+            else:
+                print(f"[Thunders] '{aba}': {len(df)} linhas (coluna Tipo de operação não encontrada)")
+                print(f"[Thunders DEBUG] '{aba}' colunas encontradas: {list(df.columns[:10])}")
         except Exception as e:
             print(f"[Thunders] Aviso: não foi possível ler a aba '{aba}': {e}")
 
@@ -70,16 +88,15 @@ def consolidar_books(arquivo_bytes):
 
     df_all = pd.concat(frames, ignore_index=True)
 
-    tipo_col = 'Tipo de operação'
     if tipo_col not in df_all.columns:
         print(f"[Thunders] Coluna '{tipo_col}' não encontrada. Colunas disponíveis: {list(df_all.columns)}")
         return pd.DataFrame(), pd.DataFrame()
 
     df_all[tipo_col] = df_all[tipo_col].astype(str).str.strip()
     df_compra = df_all[df_all[tipo_col] == 'Compra'].copy().reset_index(drop=True)
-    df_venda = df_all[df_all[tipo_col] == 'Venda'].copy().reset_index(drop=True)
+    df_venda  = df_all[df_all[tipo_col] == 'Venda'].copy().reset_index(drop=True)
 
-    print(f"[Thunders] Consolidação concluída: {len(df_compra)} Compras, {len(df_venda)} Vendas.")
+    print(f"[Thunders] TOTAL consolidado: {len(df_compra)} Compras, {len(df_venda)} Vendas.")
     return df_compra, df_venda
 
 
@@ -351,6 +368,10 @@ def _formatar_aba_final(workbook, config, resultado_final):
                         cell.number_format = '#,##0.00'
                         if cell.value < 0:
                             cell.font = red_data_font
+                for col_idx in _DATE_COLS:
+                    cell = ws.cell(row=current_row, column=col_idx)
+                    if cell.value is not None:
+                        cell.number_format = 'DD/MM/YYYY'
                 current_row += 1
 
             soma_esq = pd.to_numeric(group_df[nomes_saida[4]], errors='coerce').sum()
@@ -408,6 +429,8 @@ def _formatar_aba_final(workbook, config, resultado_final):
                     cell.number_format = '#,##0.00'
                     if cell.value < 0 and cell.row > 1:
                         cell.font = red_data_font
+                if i in _DATE_COLS and cell.value is not None and cell.row > 1:
+                    cell.number_format = 'DD/MM/YYYY'
                 char_count = len(str(cell.value or ""))
                 if char_count > max_length:
                     max_length = char_count
