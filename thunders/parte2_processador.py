@@ -66,8 +66,8 @@ def consolidar_books(arquivo_bytes):
             df_raw = pd.read_excel(xls, sheet_name=aba, header=None, nrows=3)
             header_row = 1  # padrão
             for i in range(min(3, len(df_raw))):
-                row_vals = df_raw.iloc[i].astype(str).tolist()
-                if any('Tipo de opera' in v for v in row_vals):
+                row_str = ' '.join(str(v) for v in df_raw.iloc[i].tolist())
+                if 'Tipo de opera' in row_str:
                     header_row = i
                     break
             df = pd.read_excel(xls, sheet_name=aba, skiprows=header_row, header=0)
