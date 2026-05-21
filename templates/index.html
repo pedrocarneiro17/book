@@ -42,6 +42,16 @@
 </head>
 <body>
 
+<nav class="navbar navbar-light bg-white border-bottom px-4 py-2 mb-3">
+    <span class="text-muted small">Olá, <strong>{{ session.username }}</strong></span>
+    <div class="d-flex gap-2">
+        {% if session.is_master %}
+        <a href="/master" class="btn btn-sm btn-outline-dark">Painel Master</a>
+        {% endif %}
+        <a href="/logout" class="btn btn-sm btn-outline-danger">Sair</a>
+    </div>
+</nav>
+
     <div class="container py-5">
         <div class="text-center mb-5">
             <h1 class="display-5">Confronto entre Book x Livro</h1>

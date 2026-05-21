@@ -48,7 +48,7 @@
                     <input type="text" name="username" class="form-control form-control-sm" required>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label small fw-semibold">Password inicial</label>
+                    <label class="form-label small fw-semibold">Senha inicial</label>
                     <input type="text" name="password" class="form-control form-control-sm" required>
                 </div>
                 <div class="col-md-auto">
@@ -116,13 +116,21 @@
                                     data-bs-target="#modalPwd"
                                     data-userid="{{ u.id }}"
                                     data-username="{{ u.username }}">
-                                Reset pwd
+                                Reset senha
                             </button>
                             {% if not u.is_master %}
                             <form method="POST" action="/master/clear_ips/{{ u.id }}" class="d-inline">
                                 <button class="btn btn-outline-warning btn-sm py-0"
                                         onclick="return confirm('Limpar histórico de IPs de {{ u.username }}?')">
                                     Limpar IPs
+                                </button>
+                            </form>
+                            {% endif %}
+                            {% if u.id != current_user_id %}
+                            <form method="POST" action="/master/delete/{{ u.id }}" class="d-inline">
+                                <button class="btn btn-danger btn-sm py-0"
+                                        onclick="return confirm('Apagar utilizador {{ u.username }}? Esta ação é irreversível.')">
+                                    Apagar
                                 </button>
                             </form>
                             {% endif %}
@@ -139,7 +147,7 @@
     <div class="card">
         <div class="card-body">
             <p class="section-title mb-3">Histórico de IPs por Utilizador</p>
-            {% if not ip_summary %}
+            {% if not ip_por_user %}
                 <p class="text-muted small mb-0">Ainda sem registos de acesso.</p>
             {% else %}
             <table class="table table-hover mb-0">
@@ -152,21 +160,18 @@
                     </tr>
                 </thead>
                 <tbody>
-                {% set current_user = namespace(name='') %}
-                {% for row in ip_summary %}
-                    {% if row.username != current_user.name %}
-                        {% set _ = current_user.__setattr__('name', row.username) %}
-                        <tr class="table-light">
-                            <td colspan="4" class="fw-semibold small py-1 text-secondary">
-                                {{ row.username }}
-                                {% if row.is_active %}
-                                    <span class="badge bg-success ms-1" style="font-size:0.7rem;">ativo</span>
-                                {% else %}
-                                    <span class="badge bg-danger ms-1" style="font-size:0.7rem;">inativo</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                    {% endif %}
+                {% for username, data in ip_por_user.items() %}
+                    <tr class="table-light">
+                        <td colspan="4" class="fw-semibold small py-1 text-secondary">
+                            {{ username }}
+                            {% if data.is_active %}
+                                <span class="badge bg-success ms-1" style="font-size:0.7rem;">ativo</span>
+                            {% else %}
+                                <span class="badge bg-danger ms-1" style="font-size:0.7rem;">inativo</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% for row in data.ips %}
                     <tr>
                         <td></td>
                         <td><code>{{ row.ip_address }}</code></td>
@@ -175,6 +180,7 @@
                             {{ row.last_access.strftime('%d/%m/%Y %H:%M') if row.last_access else '—' }}
                         </td>
                     </tr>
+                    {% endfor %}
                 {% endfor %}
                 </tbody>
             </table>
@@ -196,7 +202,7 @@
                 <div class="modal-body">
                     <input type="hidden" name="user_id" id="pwdUserId">
                     <p class="small text-muted mb-2">Utilizador: <strong id="pwdUsername"></strong></p>
-                    <label class="form-label small fw-semibold">Nova password</label>
+                    <label class="form-label small fw-semibold">Nova senha</label>
                     <input type="text" name="new_password" class="form-control form-control-sm" required>
                 </div>
                 <div class="modal-footer py-2">

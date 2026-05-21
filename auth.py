@@ -182,6 +182,16 @@ def create_user(username, password):
         conn.close()
 
 
+def delete_user(user_id, current_user_id):
+    """Apaga utilizador e todos os seus logs de IP. Não apaga o próprio utilizador logado."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM users WHERE id = %s AND id != %s", (user_id, current_user_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def toggle_user_active(user_id):
     """Ativa/desativa — não funciona no master."""
     conn = get_db()

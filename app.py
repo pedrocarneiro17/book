@@ -1,6 +1,8 @@
 import os
 import io
 import functools
+from dotenv import load_dotenv
+load_dotenv()
 
 import pandas as pd
 import openpyxl
@@ -104,11 +106,27 @@ def logout():
 @master_required
 def master_panel():
     users      = auth.get_all_users()
-    ip_summary = auth.get_ip_summary()
+    ip_rows    = auth.get_ip_summary()
     msg      = session.pop('flash_msg', None)
     msg_type = session.pop('flash_type', 'success')
+
+    # Ajusta horário para UTC-3 (Brasil) e agrupa IPs por username
+    from collections import OrderedDict
+    from datetime import timedelta
+    BR = timedelta(hours=-3)
+
+    ip_por_user = OrderedDict()
+    for row in ip_rows:
+        if row['last_access']:
+            row['last_access'] = row['last_access'] + BR
+        name = row['username']
+        if name not in ip_por_user:
+            ip_por_user[name] = {'is_active': row['is_active'], 'ips': []}
+        ip_por_user[name]['ips'].append(row)
+
     return render_template('master_panel.html',
-                           users=users, ip_summary=ip_summary,
+                           users=users, ip_por_user=ip_por_user,
+                           current_user_id=session['user_id'],
                            msg=msg, msg_type=msg_type)
 
 
@@ -151,6 +169,15 @@ def master_reset_password():
 def master_clear_ips(user_id):
     auth.clear_user_ips(user_id)
     session['flash_msg']  = "Histórico de IPs limpo."
+    session['flash_type'] = 'success'
+    return redirect(url_for('master_panel'))
+
+
+@app.route('/master/delete/<int:user_id>', methods=['POST'])
+@master_required
+def master_delete_user(user_id):
+    auth.delete_user(user_id, session['user_id'])
+    session['flash_msg']  = "Utilizador apagado."
     session['flash_type'] = 'success'
     return redirect(url_for('master_panel'))
 
