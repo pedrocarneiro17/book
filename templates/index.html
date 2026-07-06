@@ -68,6 +68,7 @@
                         <option value="" selected>-- Escolha um modelo --</option>
                         <option value="modelo1">Modelo Santander</option>
                         <option value="thunders">Modelo Thunders</option>
+                        <option value="zeus">Modelo Zeus</option>
                     </select>
                 </div>
 
@@ -132,6 +133,32 @@
                     <input class="form-control form-control-lg" type="file" id="excel_file" name="excel_file" accept=".xlsx" required>
                 </div>
 
+                <!-- INSTRUÇÕES ZEUS -->
+                <div id="instrucoesZeus" class="d-none">
+                    <div class="instrucoes-box fade-in">
+                        <h5 class="instrucoes-title">Instruções para o Modelo Zeus</h5>
+                        <p>Garanta que as abas do seu arquivo Excel estejam na seguinte ordem:</p>
+                        <ol class="list-group list-group-numbered list-group-flush mb-4">
+                            <li class="list-group-item">Livro de Entrada</li>
+                            <li class="list-group-item">Livro de Saída</li>
+                            <li class="list-group-item">Book(s)</li>
+                        </ol>
+
+                        <h6 class="text-primary mb-3">Filtros de Data (Opcional)</h6>
+                        <p class="small text-muted mb-3">Selecione uma data para ignorar todos os registros a partir dela.</p>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="data_corte_compras_z" class="form-label">Data de Corte Compras:</label>
+                                <input type="date" class="form-control" id="data_corte_compras_z" name="data_corte_compras">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="data_corte_vendas_z" class="form-label">Data de Corte Vendas:</label>
+                                <input type="date" class="form-control" id="data_corte_vendas_z" name="data_corte_vendas">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- BOTÃO DE ENVIO -->
                 <div class="d-grid">
                     <button type="submit" class="btn btn-primary btn-lg" id="submitButton">
@@ -149,15 +176,18 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         document.getElementById('modelo_selecionado').addEventListener('change', function() {
-            var divModelo1   = document.getElementById('instrucoesModelo1');
-            var divThunders  = document.getElementById('instrucoesThunders');
+            var divModelo1  = document.getElementById('instrucoesModelo1');
+            var divThunders = document.getElementById('instrucoesThunders');
+            var divZeus     = document.getElementById('instrucoesZeus');
 
             divModelo1.classList.add('d-none');
             divThunders.classList.add('d-none');
+            divZeus.classList.add('d-none');
 
             var alvo = null;
             if (this.value === 'modelo1')  { alvo = divModelo1;  }
             if (this.value === 'thunders') { alvo = divThunders; }
+            if (this.value === 'zeus')     { alvo = divZeus;     }
 
             if (alvo) {
                 alvo.classList.remove('d-none');

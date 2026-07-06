@@ -24,6 +24,15 @@ from thunders.parte2_processador import (
 )
 from thunders.resumo_processador import criar_aba_resumo_thunders
 
+from zeus.parte2_processador import (
+    consolidar_book as consolidar_book_zeus,
+    executar_comparacao_zeus,
+    executar_exclusao_parcial_zeus,
+    COLUNAS_LIVRO_SAIDA as COLUNAS_LIVRO_SAIDA_ZEUS,
+    NOMES_COLUNAS_SAIDA_SAIDA as NOMES_COLUNAS_SAIDA_SAIDA_ZEUS,
+)
+from zeus.resumo_processador import criar_aba_resumo_zeus
+
 import auth
 
 app = Flask(__name__)
@@ -314,6 +323,54 @@ def process():
 
                 if workbook_resultado:
                     workbook_resultado = criar_aba_resumo_thunders(
+                        workbook_resultado, data_corte_compras, data_corte_vendas)
+
+            elif modelo_selecionado == 'zeus':
+                file_bytes = uploaded_file.read()
+
+                workbook_resultado   = openpyxl.load_workbook(io.BytesIO(file_bytes), keep_links=False, data_only=True)
+                df_livro_entrada_raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name='ENTRADAS', skiprows=5, header=0)
+                df_livro_saida_raw   = pd.read_excel(io.BytesIO(file_bytes), sheet_name='SAÍDAS',   skiprows=5, header=0)
+                df_book_compra, df_book_venda = consolidar_book_zeus(io.BytesIO(file_bytes))
+
+                config_entrada_cnpj = {
+                    "nome_processo":           "Zeus 2.1 - Livro x Book Entrada CNPJ",
+                    "nome_aba_saida":           "Livro x Book Entrada - CNPJ",
+                    "chave_agrupamento_final":  12,
+                    "data_corte":               data_corte_compras,
+                }
+                config_saida_cnpj = {
+                    "nome_processo":           "Zeus 2.2 - Livro x Book Saída CNPJ",
+                    "nome_aba_saida":           "Livro x Book Saída - CNPJ",
+                    "chave_agrupamento_final":  12,
+                    "data_corte":               data_corte_vendas,
+                    "colunas_livro":            COLUNAS_LIVRO_SAIDA_ZEUS,
+                    "nomes_colunas_saida":      NOMES_COLUNAS_SAIDA_SAIDA_ZEUS,
+                }
+                config_entrada_parcial = {
+                    **config_entrada_cnpj,
+                    "nome_processo":           "Zeus 3.1 - Livro x Book Entrada Exclusão",
+                    "nome_aba_saida":           "Livro x Book Entrada",
+                    "chave_agrupamento_final":  8,
+                }
+                config_saida_parcial = {
+                    **config_saida_cnpj,
+                    "nome_processo":           "Zeus 3.2 - Livro x Book Saída Exclusão",
+                    "nome_aba_saida":           "Livro x Book Saída",
+                    "chave_agrupamento_final":  8,
+                }
+
+                workbook_resultado = executar_comparacao_zeus(
+                    workbook_resultado, config_entrada_cnpj, df_livro_entrada_raw, df_book_compra)
+                workbook_resultado = executar_comparacao_zeus(
+                    workbook_resultado, config_saida_cnpj, df_livro_saida_raw, df_book_venda)
+                workbook_resultado = executar_exclusao_parcial_zeus(
+                    workbook_resultado, config_entrada_parcial, df_livro_entrada_raw, df_book_compra)
+                workbook_resultado = executar_exclusao_parcial_zeus(
+                    workbook_resultado, config_saida_parcial, df_livro_saida_raw, df_book_venda)
+
+                if workbook_resultado:
+                    workbook_resultado = criar_aba_resumo_zeus(
                         workbook_resultado, data_corte_compras, data_corte_vendas)
 
             else:

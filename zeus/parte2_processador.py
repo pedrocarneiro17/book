@@ -2,103 +2,117 @@ import pandas as pd
 import numpy as np
 from openpyxl.styles import Font, PatternFill, Alignment
 
-# Colunas de saída: 13 colunas (5 Livro | sep | 6 Book | Diferença)
+# ---------------------------------------------------------------------------
+# Layout de saída: 14 colunas (5 Livro | sep | 7 Book | Diferença)
+# ---------------------------------------------------------------------------
 NOMES_COLUNAS_SAIDA = [
     'Data Emissão', 'Nota', 'Fornecedor', 'CNPJ/CPF/CEI/CAEPF', 'Valor Contábil',
     ' ',
-    'Negócio', 'Negociante', 'Data do fornecimento', 'Contrato CCEE', 'CPF/CNPJ da contraparte', 'Valor NF',
+    '#Boleta', 'Data Fim', 'Grupo', 'Razão Social', 'CNPJ', 'Valor Total', 'NFE',
     'Diferença do Bloco'
 ]
-
-COLUNAS_LIVRO = {
-    "nome": "Fornecedor",
-    "cnpj": "CNPJ/CPF/CEI/CAEPF",
-    "valor": "Valor Contábil",
-    "nota": "Nota",
-    "data_emissao": "Data Emissão"
-}
-
-COLUNAS_LIVRO_SAIDA = {
-    "nome": "Cliente",
-    "cnpj": "CNPJ/CPF/CEI/CAEPF",
-    "valor": "Valor Contábil",
-    "nota": "Nota",
-    "data_emissao": "Data Emissão"
-}
 
 NOMES_COLUNAS_SAIDA_SAIDA = [
     'Data Emissão', 'Nota', 'Cliente', 'CNPJ/CPF/CEI/CAEPF', 'Valor Contábil',
     ' ',
-    'Negócio', 'Negociante', 'Data do fornecimento', 'Contrato CCEE', 'CPF/CNPJ da contraparte', 'Valor NF',
+    '#Boleta', 'Data Fim', 'Grupo', 'Razão Social', 'CNPJ', 'Valor Total', 'NFE',
     'Diferença do Bloco'
 ]
 
-COLUNAS_BOOK = {
-    "nome": "Negociante",
-    "cnpj": "CPF/CNPJ da contraparte",
-    "valor": "Valor NF",
-    "negocio": "Negócio",
-    "data_fornecimento": "Data do fornecimento",
-    "contrato_ccee": "Contrato CCEE"
+COLUNAS_LIVRO = {
+    "nome":        "Fornecedor",
+    "cnpj":        "CNPJ/CPF/CEI/CAEPF",
+    "valor":       "Valor Contábil",
+    "nota":        "Nota",
+    "data_emissao": "Data Emissão",
 }
 
-# Colunas de valor (1-based): Valor Contábil=5, Valor NF=12, Diferença=13
-_VALUE_COLS = [5, 12, 13]
-# Colunas de data (1-based): Data Emissão=1, Data do fornecimento=9
-_DATE_COLS = [1, 9]
+COLUNAS_LIVRO_SAIDA = {
+    "nome":        "Cliente",
+    "cnpj":        "CNPJ/CPF/CEI/CAEPF",
+    "valor":       "Valor Contábil",
+    "nota":        "Nota",
+    "data_emissao": "Data Emissão",
+}
+
+COLUNAS_BOOK = {
+    "cv":        "C/V",           # usado para split Compra/Venda
+    "nome":      "Razão Social",
+    "cnpj":      "CNPJ",
+    "valor":     "Valor Total",
+    "data_fim":  "Data Fim",
+    "boleta":    "#Boleta",
+    "grupo":     "Grupo",
+    "nfe":       "NFE",
+}
+
+# Colunas de valor (1-based): Valor Contábil=5, Valor Total=12, Diferença=14
+_VALUE_COLS = [5, 12, 14]
+# Colunas de data (1-based): Data Emissão=1, Data Fim=8
+_DATE_COLS = [1, 8]
+
+_N_COLS = 14  # total de colunas de saída
 
 
-def consolidar_books(arquivo_bytes):
-    """Lê todas as abas a partir do índice 2, consolida e separa por Tipo de operação."""
+# ---------------------------------------------------------------------------
+# Leitura do Book Zeus (aba única)
+# ---------------------------------------------------------------------------
+
+def consolidar_book(arquivo_bytes):
+    """Lê a aba do Book Zeus e separa em Compra e Venda pela coluna C/V."""
     xls = pd.ExcelFile(arquivo_bytes)
-    nomes_abas = xls.sheet_names
-    abas_book = nomes_abas[2:]
 
+    # Procura a aba do book (índice >= 2, ou qualquer aba que não seja ENTRADAS/SAÍDAS)
+    abas_book = [a for a in xls.sheet_names if a.upper() not in ('ENTRADAS', 'SAÍDAS', 'SAIDAS')]
     if not abas_book:
-        print("[Thunders] Nenhuma aba de book encontrada (índice >= 2).")
+        print("[Zeus] Nenhuma aba de book encontrada.")
         return pd.DataFrame(), pd.DataFrame()
 
     frames = []
-    tipo_col = 'Tipo de operação'
+    cv_col = COLUNAS_BOOK['cv']
+
     for aba in abas_book:
         try:
-            # Detecta em qual linha está o cabeçalho (pode ser linha 0 ou linha 1)
             df_raw = pd.read_excel(xls, sheet_name=aba, header=None, nrows=3)
-            header_row = 1  # padrão
+            header_row = 0
             for i in range(min(3, len(df_raw))):
                 row_str = ' '.join(str(v) for v in df_raw.iloc[i].tolist())
-                if 'Tipo de opera' in row_str:
+                if 'C/V' in row_str or 'Razão Social' in row_str:
                     header_row = i
                     break
             df = pd.read_excel(xls, sheet_name=aba, skiprows=header_row, header=0)
             frames.append(df)
-            if tipo_col in df.columns:
-                tipos = df[tipo_col].astype(str).str.strip()
+            if cv_col in df.columns:
+                tipos = df[cv_col].astype(str).str.strip()
                 n_compra = (tipos == 'Compra').sum()
                 n_venda  = (tipos == 'Venda').sum()
-                print(f"[Thunders] '{aba}': {n_compra} Compras, {n_venda} Vendas ({len(df)} linhas total)")
+                print(f"[Zeus] '{aba}': {n_compra} Compras, {n_venda} Vendas ({len(df)} linhas total)")
             else:
-                print(f"[Thunders] '{aba}': {len(df)} linhas (coluna Tipo de operação não encontrada)")
-                print(f"[Thunders DEBUG] '{aba}' colunas encontradas: {list(df.columns[:10])}")
+                print(f"[Zeus] '{aba}': {len(df)} linhas (coluna C/V não encontrada)")
+                print(f"[Zeus DEBUG] colunas encontradas: {list(df.columns[:10])}")
         except Exception as e:
-            print(f"[Thunders] Aviso: não foi possível ler a aba '{aba}': {e}")
+            print(f"[Zeus] Aviso: não foi possível ler a aba '{aba}': {e}")
 
     if not frames:
         return pd.DataFrame(), pd.DataFrame()
 
     df_all = pd.concat(frames, ignore_index=True)
 
-    if tipo_col not in df_all.columns:
-        print(f"[Thunders] Coluna '{tipo_col}' não encontrada. Colunas disponíveis: {list(df_all.columns)}")
+    if cv_col not in df_all.columns:
+        print(f"[Zeus] Coluna '{cv_col}' não encontrada. Colunas: {list(df_all.columns)}")
         return pd.DataFrame(), pd.DataFrame()
 
-    df_all[tipo_col] = df_all[tipo_col].astype(str).str.strip()
-    df_compra = df_all[df_all[tipo_col] == 'Compra'].copy().reset_index(drop=True)
-    df_venda  = df_all[df_all[tipo_col] == 'Venda'].copy().reset_index(drop=True)
+    df_all[cv_col] = df_all[cv_col].astype(str).str.strip()
+    df_compra = df_all[df_all[cv_col] == 'Compra'].copy().reset_index(drop=True)
+    df_venda  = df_all[df_all[cv_col] == 'Venda'].copy().reset_index(drop=True)
 
-    print(f"[Thunders] TOTAL consolidado: {len(df_compra)} Compras, {len(df_venda)} Vendas.")
+    print(f"[Zeus] TOTAL consolidado: {len(df_compra)} Compras, {len(df_venda)} Vendas.")
     return df_compra, df_venda
 
+
+# ---------------------------------------------------------------------------
+# Funções de processamento (idênticas ao Thunders, adaptadas para Zeus)
+# ---------------------------------------------------------------------------
 
 def _preparar_dataframe(df_raw, col_config, extra_cols_keys):
     """Padroniza um DataFrame para conciliação."""
@@ -109,16 +123,16 @@ def _preparar_dataframe(df_raw, col_config, extra_cols_keys):
 
     if not all(c in df_raw.columns for c in colunas_essenciais):
         faltando = [c for c in colunas_essenciais if c not in df_raw.columns]
-        print(f"[Thunders] Colunas essenciais não encontradas: {faltando}")
+        print(f"[Zeus] Colunas essenciais não encontradas: {faltando}")
         return pd.DataFrame()
 
     df = df_raw[colunas_existentes].copy()
     df.dropna(subset=[col_config['cnpj'], col_config['valor']], inplace=True)
 
     df.rename(columns={
-        col_config['cnpj']: 'CNPJ_PADRAO',
-        col_config['nome']: 'NOME_PADRAO',
-        col_config['valor']: 'VALOR_PADRAO'
+        col_config['cnpj']:  'CNPJ_PADRAO',
+        col_config['nome']:  'NOME_PADRAO',
+        col_config['valor']: 'VALOR_PADRAO',
     }, inplace=True)
 
     df['CNPJ_PADRAO'] = (
@@ -135,8 +149,8 @@ def _preparar_dataframe(df_raw, col_config, extra_cols_keys):
 
 
 def _criar_resultado_final(merged_data, config):
-    """Monta o DataFrame de saída com layout Thunders (13 colunas)."""
-    nomes_saida = config.get('nomes_colunas_saida', NOMES_COLUNAS_SAIDA)
+    """Monta o DataFrame de saída com layout Zeus (14 colunas)."""
+    nomes_saida   = config.get('nomes_colunas_saida', NOMES_COLUNAS_SAIDA)
     colunas_livro = config.get('colunas_livro', COLUNAS_LIVRO)
 
     if merged_data.empty:
@@ -152,26 +166,28 @@ def _criar_resultado_final(merged_data, config):
     def safe_get(col):
         return merged_data[col] if col and col in merged_data.columns else pd.Series(index=merged_data.index)
 
-    col_data_esq = f"{colunas_livro.get('data_emissao')}_esq"
-    col_nota_esq = f"{colunas_livro.get('nota')}_esq"
-    col_negocio_dir = f"{COLUNAS_BOOK.get('negocio')}_dir"
-    col_data_forn_dir = f"{COLUNAS_BOOK.get('data_fornecimento')}_dir"
-    col_contrato_dir = f"{COLUNAS_BOOK.get('contrato_ccee')}_dir"
+    col_data_esq   = f"{colunas_livro.get('data_emissao')}_esq"
+    col_nota_esq   = f"{colunas_livro.get('nota')}_esq"
+    col_boleta_dir = f"{COLUNAS_BOOK.get('boleta')}_dir"
+    col_data_fim   = f"{COLUNAS_BOOK.get('data_fim')}_dir"
+    col_grupo_dir  = f"{COLUNAS_BOOK.get('grupo')}_dir"
+    col_nfe_dir    = f"{COLUNAS_BOOK.get('nfe')}_dir"
 
     final_data = {
         nomes_saida[0]:  safe_get(col_data_esq),          # Data Emissão
         nomes_saida[1]:  safe_get(col_nota_esq),           # Nota
-        nomes_saida[2]:  safe_get('NOME_PADRAO_esq'),      # Fornecedor
-        nomes_saida[3]:  safe_get('CNPJ_PADRAO_esq'),      # CNPJ esquerdo
+        nomes_saida[2]:  safe_get('NOME_PADRAO_esq'),      # Fornecedor / Cliente
+        nomes_saida[3]:  safe_get('CNPJ_PADRAO_esq'),      # CNPJ Livro
         nomes_saida[4]:  safe_get('VALOR_PADRAO_esq'),     # Valor Contábil
         nomes_saida[5]:  '',                                # Separador
-        nomes_saida[6]:  safe_get(col_negocio_dir),        # Negócio
-        nomes_saida[7]:  safe_get('NOME_PADRAO_dir'),      # Negociante
-        nomes_saida[8]:  safe_get(col_data_forn_dir),      # Data do fornecimento
-        nomes_saida[9]:  safe_get(col_contrato_dir),       # Contrato CCEE
-        nomes_saida[10]: safe_get('CNPJ_PADRAO_dir'),      # CPF/CNPJ da contraparte
-        nomes_saida[11]: safe_get('VALOR_PADRAO_dir'),     # Valor NF
-        nomes_saida[12]: safe_get('diferenca_bloco'),      # Diferença do Bloco
+        nomes_saida[6]:  safe_get(col_boleta_dir),         # #Boleta
+        nomes_saida[7]:  safe_get(col_data_fim),           # Data Fim
+        nomes_saida[8]:  safe_get(col_grupo_dir),          # Grupo
+        nomes_saida[9]:  safe_get('NOME_PADRAO_dir'),      # Razão Social
+        nomes_saida[10]: safe_get('CNPJ_PADRAO_dir'),      # CNPJ Book
+        nomes_saida[11]: safe_get('VALOR_PADRAO_dir'),     # Valor Total
+        nomes_saida[12]: safe_get(col_nfe_dir),            # NFE
+        nomes_saida[13]: safe_get('diferenca_bloco'),      # Diferença do Bloco
     }
 
     return pd.DataFrame(final_data)
@@ -214,7 +230,6 @@ def _encontrar_melhores_matches(df1, df2, grouping_key_length):
 
 
 def _capturar_transacoes_combinadas(df1, df2, indices_combinados_1, indices_combinados_2, config):
-    """Captura os pares que foram combinados (excluídos do divergente)."""
     nomes_saida = config.get('nomes_colunas_saida', NOMES_COLUNAS_SAIDA)
     tc1 = df1[df1['indice_original'].isin(indices_combinados_1)].copy()
     tc2 = df2[df2['indice_original'].isin(indices_combinados_2)].copy()
@@ -270,7 +285,6 @@ def _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combin
     sobras_2.rename(columns=cols2, inplace=True)
 
     merged_sobras = pd.merge(sobras_1, sobras_2, on=['chave_agrupamento', 'chave_emparelhamento'], how='outer')
-
     blocos_excluidos = pd.DataFrame()
 
     if not merged_sobras.empty:
@@ -280,7 +294,7 @@ def _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combin
         merged_sobras['_val_esq'] = val_esq
         merged_sobras['_val_dir'] = val_dir
 
-        group_sums = merged_sobras.groupby('chave_agrupamento')[['_val_esq', '_val_dir']].sum()
+        group_sums  = merged_sobras.groupby('chave_agrupamento')[['_val_esq', '_val_dir']].sum()
         group_sums['diferenca'] = group_sums['_val_esq'] - group_sums['_val_dir']
 
         chaves_excluidas = group_sums[abs(group_sums['diferenca']) <= 0.01].index
@@ -304,23 +318,23 @@ def _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combin
 
 
 def _formatar_aba_final(workbook, config, resultado_final):
-    """Cria e formata a aba de resultado com layout Thunders (13 colunas)."""
-    nomes_saida = config.get('nomes_colunas_saida', NOMES_COLUNAS_SAIDA)
+    """Cria e formata a aba de resultado com layout Zeus (14 colunas)."""
+    nomes_saida   = config.get('nomes_colunas_saida', NOMES_COLUNAS_SAIDA)
     nova_aba_nome = config['nome_aba_saida']
     if nova_aba_nome in workbook.sheetnames:
         del workbook[nova_aba_nome]
     ws = workbook.create_sheet(title=nova_aba_nome)
 
     cabecalho_display = nomes_saida.copy()
-    cabecalho_display[3] = 'CNPJ'   # CNPJ/CPF esquerdo
-    cabecalho_display[10] = 'CNPJ'  # CPF/CNPJ direito
+    cabecalho_display[3]  = 'CNPJ'   # CNPJ/CPF Livro
+    cabecalho_display[10] = 'CNPJ'   # CNPJ Book (já é 'CNPJ')
     ws.append(cabecalho_display)
 
-    orange_fill   = PatternFill(start_color="FFE46C0A", end_color="FFE46C0A", fill_type="solid")
-    blue_fill     = PatternFill(start_color="FF002060", end_color="FF002060", fill_type="solid")
-    gray_fill     = PatternFill(start_color="808080",   end_color="808080",   fill_type="solid")
-    dk_gray_fill  = PatternFill(start_color="D9D9D9",   end_color="D9D9D9",   fill_type="solid")
-    total_fill    = PatternFill(start_color="BFBFBF",   end_color="BFBFBF",   fill_type="solid")
+    orange_fill  = PatternFill(start_color="FFE46C0A", end_color="FFE46C0A", fill_type="solid")
+    blue_fill    = PatternFill(start_color="FF002060", end_color="FF002060", fill_type="solid")
+    gray_fill    = PatternFill(start_color="808080",   end_color="808080",   fill_type="solid")
+    dk_gray_fill = PatternFill(start_color="D9D9D9",   end_color="D9D9D9",   fill_type="solid")
+    total_fill   = PatternFill(start_color="BFBFBF",   end_color="BFBFBF",   fill_type="solid")
 
     header_font   = Font(name='Calibri', bold=True, italic=True, color="FFFFFF", size=11)
     data_font     = Font(name='Calibri', size=11)
@@ -333,15 +347,15 @@ def _formatar_aba_final(workbook, config, resultado_final):
 
     ws.row_dimensions[1].height = 25
     for i, cell in enumerate(ws[1]):
-        cell.font = header_font
+        cell.font      = header_font
         cell.alignment = center_align
         col = i + 1
         if 1 <= col <= 5:
-            cell.fill = orange_fill
-        elif 7 <= col <= 12:
-            cell.fill = blue_fill
-        elif col == 13:
-            cell.fill = gray_fill
+            cell.fill = orange_fill   # Livro
+        elif 7 <= col <= 13:
+            cell.fill = blue_fill     # Book (cols 7-13)
+        elif col == 14:
+            cell.fill = gray_fill     # Diferença
 
     if not resultado_final.empty:
         resultado_final = resultado_final.copy()
@@ -357,8 +371,7 @@ def _formatar_aba_final(workbook, config, resultado_final):
             group_df = group_df.drop(columns=['_group_key'])
 
             for _, data_row in group_df.iterrows():
-                row_data = data_row.tolist()
-                ws.append(row_data)
+                ws.append(data_row.tolist())
                 if is_gray:
                     for cell in ws[current_row]:
                         cell.fill = dk_gray_fill
@@ -374,14 +387,14 @@ def _formatar_aba_final(workbook, config, resultado_final):
                         cell.number_format = 'DD/MM/YYYY'
                 current_row += 1
 
-            soma_esq = pd.to_numeric(group_df[nomes_saida[4]], errors='coerce').sum()
-            soma_dir = pd.to_numeric(group_df[nomes_saida[11]], errors='coerce').sum()
+            soma_esq  = pd.to_numeric(group_df[nomes_saida[4]],  errors='coerce').sum()
+            soma_dir  = pd.to_numeric(group_df[nomes_saida[11]], errors='coerce').sum()
             diferenca = soma_esq - soma_dir
 
-            summary_row = [''] * 13
-            summary_row[4] = soma_esq if soma_esq != 0 else None
-            summary_row[11] = soma_dir if soma_dir != 0 else None
-            summary_row[12] = diferenca
+            summary_row = [''] * _N_COLS
+            summary_row[4]  = soma_esq  if soma_esq  != 0 else None
+            summary_row[11] = soma_dir  if soma_dir  != 0 else None
+            summary_row[13] = diferenca
             ws.append(summary_row)
 
             for cell in ws[current_row]:
@@ -405,7 +418,7 @@ def _formatar_aba_final(workbook, config, resultado_final):
 
         ws.cell(row=total_row, column=1, value="TOTAL GERAL").font = total_font
 
-        c1 = ws.cell(row=total_row, column=5, value=total_esq)
+        c1 = ws.cell(row=total_row, column=5,  value=total_esq)
         c1.font = red_total if total_esq < 0 else total_font
         c1.number_format = '#,##0.00'
 
@@ -413,7 +426,7 @@ def _formatar_aba_final(workbook, config, resultado_final):
         c2.font = red_total if total_dir < 0 else total_font
         c2.number_format = '#,##0.00'
 
-        c3 = ws.cell(row=total_row, column=13, value=total_diff)
+        c3 = ws.cell(row=total_row, column=14, value=total_diff)
         c3.font = red_total if total_diff < 0 else total_font
         c3.number_format = '#,##0.00'
 
@@ -445,9 +458,10 @@ def _executar_base(workbook, config, df_livro_raw, df_book_raw, usar_exclusao_pa
         return workbook
     print(f"\n--- INICIANDO {config['nome_processo']} ---")
     try:
-        df_livro = df_livro_raw.copy()
+        df_livro    = df_livro_raw.copy()
+        colunas_livro = config.get('colunas_livro', COLUNAS_LIVRO)
         cutoff_date_str = config.get('data_corte')
-        date_col = COLUNAS_LIVRO.get('data_emissao')
+        date_col = colunas_livro.get('data_emissao')
 
         if cutoff_date_str and date_col and date_col in df_livro.columns:
             try:
@@ -459,9 +473,8 @@ def _executar_base(workbook, config, df_livro_raw, df_book_raw, usar_exclusao_pa
             except Exception as e:
                 print(f"Aviso: filtro de data falhou: {e}")
 
-        colunas_livro = config.get('colunas_livro', COLUNAS_LIVRO)
         df1 = _preparar_dataframe(df_livro,    colunas_livro, ['nota', 'data_emissao'])
-        df2 = _preparar_dataframe(df_book_raw, COLUNAS_BOOK,  ['negocio', 'data_fornecimento', 'contrato_ccee'])
+        df2 = _preparar_dataframe(df_book_raw, COLUNAS_BOOK,  ['boleta', 'data_fim', 'grupo', 'nfe'])
 
         if df1.empty and df2.empty:
             _formatar_aba_final(workbook, config, pd.DataFrame(columns=NOMES_COLUNAS_SAIDA))
@@ -495,11 +508,11 @@ def _executar_base(workbook, config, df_livro_raw, df_book_raw, usar_exclusao_pa
         return workbook
 
 
-def executar_comparacao_thunders(workbook, config, df_livro_raw, df_book_raw):
+def executar_comparacao_zeus(workbook, config, df_livro_raw, df_book_raw):
     """Comparação padrão lado a lado (agrupamento por 12 dígitos do CNPJ)."""
     return _executar_base(workbook, config, df_livro_raw, df_book_raw, usar_exclusao_parcial=False)
 
 
-def executar_exclusao_parcial_thunders(workbook, config, df_livro_raw, df_book_raw):
+def executar_exclusao_parcial_zeus(workbook, config, df_livro_raw, df_book_raw):
     """Comparação com exclusão parcial (agrupamento por 8 dígitos do CNPJ)."""
     return _executar_base(workbook, config, df_livro_raw, df_book_raw, usar_exclusao_parcial=True)
