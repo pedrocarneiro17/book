@@ -238,12 +238,10 @@ def _capturar_transacoes_combinadas(df1, df2, indices_combinados_1, indices_comb
         return pd.DataFrame(columns=nomes_saida)
 
     grouping_key_length = 8
-    if not tc1.empty:
-        tc1['chave_agrupamento'] = tc1['CNPJ_PADRAO'].str[:grouping_key_length]
-        tc1['chave_emparelhamento'] = tc1.groupby('chave_agrupamento').cumcount()
-    if not tc2.empty:
-        tc2['chave_agrupamento'] = tc2['CNPJ_PADRAO'].str[:grouping_key_length]
-        tc2['chave_emparelhamento'] = tc2.groupby('chave_agrupamento').cumcount()
+    tc1['chave_agrupamento'] = tc1['CNPJ_PADRAO'].str[:grouping_key_length]
+    tc1['chave_emparelhamento'] = tc1.groupby('chave_agrupamento').cumcount()
+    tc2['chave_agrupamento'] = tc2['CNPJ_PADRAO'].str[:grouping_key_length]
+    tc2['chave_emparelhamento'] = tc2.groupby('chave_agrupamento').cumcount()
 
     cols1 = {c: f"{c}_esq" for c in tc1.columns if c not in ['chave_agrupamento', 'chave_emparelhamento']}
     tc1.rename(columns=cols1, inplace=True)
@@ -272,12 +270,10 @@ def _processar_comparacao(df1, df2, config, indices_combinados_1, indices_combin
 
     grouping_key_length = config.get('chave_agrupamento_final', 8)
 
-    if not sobras_1.empty:
-        sobras_1['chave_agrupamento'] = sobras_1['CNPJ_PADRAO'].str[:grouping_key_length]
-        sobras_1['chave_emparelhamento'] = sobras_1.groupby('chave_agrupamento').cumcount()
-    if not sobras_2.empty:
-        sobras_2['chave_agrupamento'] = sobras_2['CNPJ_PADRAO'].str[:grouping_key_length]
-        sobras_2['chave_emparelhamento'] = sobras_2.groupby('chave_agrupamento').cumcount()
+    sobras_1['chave_agrupamento'] = sobras_1['CNPJ_PADRAO'].str[:grouping_key_length]
+    sobras_1['chave_emparelhamento'] = sobras_1.groupby('chave_agrupamento').cumcount()
+    sobras_2['chave_agrupamento'] = sobras_2['CNPJ_PADRAO'].str[:grouping_key_length]
+    sobras_2['chave_emparelhamento'] = sobras_2.groupby('chave_agrupamento').cumcount()
 
     cols1 = {c: f"{c}_esq" for c in sobras_1.columns if c not in ['chave_agrupamento', 'chave_emparelhamento']}
     sobras_1.rename(columns=cols1, inplace=True)
