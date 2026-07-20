@@ -19,6 +19,7 @@ from thunders.parte2_processador import (
     consolidar_books,
     executar_comparacao_thunders,
     executar_exclusao_parcial_thunders,
+    executar_confronto_book_x_book,
     COLUNAS_LIVRO_SAIDA,
     NOMES_COLUNAS_SAIDA_SAIDA,
 )
@@ -211,6 +212,9 @@ def process():
     modelo_selecionado  = request.form.get('modelo_selecionado')
     data_corte_compras  = request.form.get('data_corte_compras')
     data_corte_vendas   = request.form.get('data_corte_vendas')
+    tipo_confronto_thunders = request.form.get('tipo_confronto_thunders', 'livro_book')
+    data_corte_compras_bxb  = request.form.get('data_corte_compras_bxb')
+    data_corte_vendas_bxb   = request.form.get('data_corte_vendas_bxb')
 
     if uploaded_file.filename == '':
         return "Erro: Nenhum ficheiro foi selecionado.", 400
@@ -280,50 +284,59 @@ def process():
             elif modelo_selecionado == 'thunders':
                 file_bytes = uploaded_file.read()
 
-                workbook_resultado   = openpyxl.load_workbook(io.BytesIO(file_bytes), keep_links=False, data_only=True)
-                df_livro_entrada_raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=0, skiprows=5, header=0)
-                df_livro_saida_raw   = pd.read_excel(io.BytesIO(file_bytes), sheet_name=1, skiprows=5, header=0)
-                df_book_compra, df_book_venda = consolidar_books(io.BytesIO(file_bytes))
+                if tipo_confronto_thunders == 'book_book':
+                    workbook_resultado = openpyxl.load_workbook(io.BytesIO(file_bytes), keep_links=False, data_only=True)
+                    workbook_resultado = executar_confronto_book_x_book(
+                        workbook_resultado, io.BytesIO(file_bytes),
+                        data_corte_compras=data_corte_compras_bxb,
+                        data_corte_vendas=data_corte_vendas_bxb,
+                    )
 
-                config_entrada_cnpj = {
-                    "nome_processo": "Thunders 2.1 - Livro x Book Entrada CNPJ",
-                    "nome_aba_saida": "Livro x Book Entrada - CNPJ",
-                    "chave_agrupamento_final": 12,
-                    "data_corte": data_corte_compras,
-                }
-                config_saida_cnpj = {
-                    "nome_processo": "Thunders 2.2 - Livro x Book Saída CNPJ",
-                    "nome_aba_saida": "Livro x Book Saída - CNPJ",
-                    "chave_agrupamento_final": 12,
-                    "data_corte": data_corte_vendas,
-                    "colunas_livro": COLUNAS_LIVRO_SAIDA,
-                    "nomes_colunas_saida": NOMES_COLUNAS_SAIDA_SAIDA,
-                }
-                config_entrada_parcial = {
-                    **config_entrada_cnpj,
-                    "nome_processo": "Thunders 3.1 - Livro x Book Entrada Exclusão",
-                    "nome_aba_saida": "Livro x Book Entrada",
-                    "chave_agrupamento_final": 8,
-                }
-                config_saida_parcial = {
-                    **config_saida_cnpj,
-                    "nome_processo": "Thunders 3.2 - Livro x Book Saída Exclusão",
-                    "nome_aba_saida": "Livro x Book Saída",
-                    "chave_agrupamento_final": 8,
-                }
+                else:
+                    workbook_resultado   = openpyxl.load_workbook(io.BytesIO(file_bytes), keep_links=False, data_only=True)
+                    df_livro_entrada_raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=0, skiprows=5, header=0)
+                    df_livro_saida_raw   = pd.read_excel(io.BytesIO(file_bytes), sheet_name=1, skiprows=5, header=0)
+                    df_book_compra, df_book_venda = consolidar_books(io.BytesIO(file_bytes))
 
-                workbook_resultado = executar_comparacao_thunders(
-                    workbook_resultado, config_entrada_cnpj, df_livro_entrada_raw, df_book_compra)
-                workbook_resultado = executar_comparacao_thunders(
-                    workbook_resultado, config_saida_cnpj, df_livro_saida_raw, df_book_venda)
-                workbook_resultado = executar_exclusao_parcial_thunders(
-                    workbook_resultado, config_entrada_parcial, df_livro_entrada_raw, df_book_compra)
-                workbook_resultado = executar_exclusao_parcial_thunders(
-                    workbook_resultado, config_saida_parcial, df_livro_saida_raw, df_book_venda)
+                    config_entrada_cnpj = {
+                        "nome_processo": "Thunders 2.1 - Livro x Book Entrada CNPJ",
+                        "nome_aba_saida": "Livro x Book Entrada - CNPJ",
+                        "chave_agrupamento_final": 12,
+                        "data_corte": data_corte_compras,
+                    }
+                    config_saida_cnpj = {
+                        "nome_processo": "Thunders 2.2 - Livro x Book Saída CNPJ",
+                        "nome_aba_saida": "Livro x Book Saída - CNPJ",
+                        "chave_agrupamento_final": 12,
+                        "data_corte": data_corte_vendas,
+                        "colunas_livro": COLUNAS_LIVRO_SAIDA,
+                        "nomes_colunas_saida": NOMES_COLUNAS_SAIDA_SAIDA,
+                    }
+                    config_entrada_parcial = {
+                        **config_entrada_cnpj,
+                        "nome_processo": "Thunders 3.1 - Livro x Book Entrada Exclusão",
+                        "nome_aba_saida": "Livro x Book Entrada",
+                        "chave_agrupamento_final": 8,
+                    }
+                    config_saida_parcial = {
+                        **config_saida_cnpj,
+                        "nome_processo": "Thunders 3.2 - Livro x Book Saída Exclusão",
+                        "nome_aba_saida": "Livro x Book Saída",
+                        "chave_agrupamento_final": 8,
+                    }
 
-                if workbook_resultado:
-                    workbook_resultado = criar_aba_resumo_thunders(
-                        workbook_resultado, data_corte_compras, data_corte_vendas)
+                    workbook_resultado = executar_comparacao_thunders(
+                        workbook_resultado, config_entrada_cnpj, df_livro_entrada_raw, df_book_compra)
+                    workbook_resultado = executar_comparacao_thunders(
+                        workbook_resultado, config_saida_cnpj, df_livro_saida_raw, df_book_venda)
+                    workbook_resultado = executar_exclusao_parcial_thunders(
+                        workbook_resultado, config_entrada_parcial, df_livro_entrada_raw, df_book_compra)
+                    workbook_resultado = executar_exclusao_parcial_thunders(
+                        workbook_resultado, config_saida_parcial, df_livro_saida_raw, df_book_venda)
+
+                    if workbook_resultado:
+                        workbook_resultado = criar_aba_resumo_thunders(
+                            workbook_resultado, data_corte_compras, data_corte_vendas)
 
             elif modelo_selecionado == 'zeus':
                 file_bytes = uploaded_file.read()

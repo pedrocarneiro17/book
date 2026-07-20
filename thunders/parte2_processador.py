@@ -499,3 +499,228 @@ def executar_comparacao_thunders(workbook, config, df_livro_raw, df_book_raw):
 def executar_exclusao_parcial_thunders(workbook, config, df_livro_raw, df_book_raw):
     """Comparação com exclusão parcial (agrupamento por 8 dígitos do CNPJ)."""
     return _executar_base(workbook, config, df_livro_raw, df_book_raw, usar_exclusao_parcial=True)
+
+
+# ---------------------------------------------------------------------------
+# Confronto Book x Book (mesmo racional do Modelo Santander - Parte 1),
+# cruzando dois books pela coluna 'Negócio' em vez de CNPJ.
+# ---------------------------------------------------------------------------
+
+COLUNAS_BOOK_X_BOOK = {
+    "negocio": "Negócio",
+    "tipo_operacao": "Tipo de operação",
+    "nome": "Negociante",
+    "cnpj": "CPF/CNPJ da contraparte",
+    "valor": "Valor NF",
+    "data_criacao": "Data de criação",
+}
+
+
+def _ler_book_individual(xls, aba):
+    """Lê uma única aba de book, detectando a linha do cabeçalho (0 ou 1), sem consolidar com outras abas."""
+    df_raw = pd.read_excel(xls, sheet_name=aba, header=None, nrows=3)
+    header_row = 1  # padrão
+    for i in range(min(3, len(df_raw))):
+        row_str = ' '.join(str(v) for v in df_raw.iloc[i].tolist())
+        if 'Tipo de opera' in row_str:
+            header_row = i
+            break
+    return pd.read_excel(xls, sheet_name=aba, skiprows=header_row, header=0)
+
+
+def ler_books_para_confronto(arquivo_bytes):
+    """Lê as duas primeiras abas do arquivo (BOOK 1 e BOOK 2) e separa cada uma em Compra/Venda."""
+    xls = pd.ExcelFile(arquivo_bytes)
+    nomes_abas = xls.sheet_names
+
+    if len(nomes_abas) < 2:
+        print("[Thunders Book x Book] O arquivo precisa ter pelo menos 2 abas de book.")
+        vazio = pd.DataFrame()
+        return vazio, vazio, vazio, vazio
+
+    aba1, aba2 = nomes_abas[0], nomes_abas[1]
+    df1 = _ler_book_individual(xls, aba1)
+    df2 = _ler_book_individual(xls, aba2)
+
+    tipo_col = COLUNAS_BOOK_X_BOOK['tipo_operacao']
+
+    def _split(df, nome_aba):
+        if tipo_col not in df.columns:
+            print(f"[Thunders Book x Book] '{nome_aba}': coluna '{tipo_col}' não encontrada. Colunas: {list(df.columns[:10])}")
+            return pd.DataFrame(), pd.DataFrame()
+        tipos = df[tipo_col].astype(str).str.strip()
+        return df[tipos == 'Compra'].copy(), df[tipos == 'Venda'].copy()
+
+    df1_compra, df1_venda = _split(df1, aba1)
+    df2_compra, df2_venda = _split(df2, aba2)
+
+    print(f"[Thunders Book x Book] '{aba1}': {len(df1_compra)} Compras, {len(df1_venda)} Vendas")
+    print(f"[Thunders Book x Book] '{aba2}': {len(df2_compra)} Compras, {len(df2_venda)} Vendas")
+
+    return df1_compra, df1_venda, df2_compra, df2_venda
+
+
+def _formatar_aba_confronto_books(workbook, nome_aba, resultado_df):
+    """Cria e formata a aba de divergências do confronto Book x Book."""
+    if nome_aba in workbook.sheetnames:
+        del workbook[nome_aba]
+    ws = workbook.create_sheet(title=nome_aba)
+
+    header_font   = Font(bold=True, color="FFFFFF", size=11)
+    header_fill   = PatternFill(start_color="FF002060", end_color="FF002060", fill_type="solid")
+    data_font     = Font(size=11)
+    red_font      = Font(size=11, color="FF0000")
+    total_font    = Font(bold=True, size=12)
+    red_total     = Font(bold=True, size=12, color="FF0000")
+    total_fill    = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    center_align  = Alignment(horizontal='center', vertical='center')
+
+    colunas = list(resultado_df.columns)
+    ws.append(colunas)
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_align
+
+    col_valor1 = colunas.index('Valor NF (Book 1)') + 1
+    col_valor2 = colunas.index('Valor NF (Book 2)') + 1
+    col_diferenca = colunas.index('Diferença') + 1
+
+    for _, row in resultado_df.iterrows():
+        ws.append(row.tolist())
+        r = ws.max_row
+        for col_idx in (col_valor1, col_valor2, col_diferenca):
+            cell = ws.cell(row=r, column=col_idx)
+            if isinstance(cell.value, (int, float)):
+                cell.number_format = '#,##0.00'
+                cell.font = red_font if cell.value < 0 else data_font
+
+    if not resultado_df.empty:
+        total_v1 = pd.to_numeric(resultado_df['Valor NF (Book 1)'], errors='coerce').sum()
+        total_v2 = pd.to_numeric(resultado_df['Valor NF (Book 2)'], errors='coerce').sum()
+        total_diff = total_v2 - total_v1
+
+        ws.append([])
+        total_row = ws.max_row + 1
+        ws.cell(row=total_row, column=1, value="TOTAL").font = total_font
+        for col_idx, val in [(col_valor1, total_v1), (col_valor2, total_v2), (col_diferenca, total_diff)]:
+            cell = ws.cell(row=total_row, column=col_idx, value=val)
+            cell.font = red_total if val < 0 else total_font
+            cell.number_format = '#,##0.00'
+        for cell in ws[total_row]:
+            cell.fill = total_fill
+
+    for i, col_name in enumerate(colunas, 1):
+        col_letter = ws.cell(row=1, column=i).column_letter
+        max_length = len(str(col_name))
+        for cell in ws[col_letter]:
+            char_count = len(str(cell.value or ""))
+            if char_count > max_length:
+                max_length = char_count
+        ws.column_dimensions[col_letter].width = max_length + 3
+
+    return workbook
+
+
+def _aplicar_corte_data(df, nome_processo, data_corte_str):
+    """Remove registros com 'Data de criação' >= data de corte."""
+    col_data = COLUNAS_BOOK_X_BOOK['data_criacao']
+    if not data_corte_str or col_data not in df.columns:
+        return df
+    try:
+        cutoff = pd.to_datetime(data_corte_str)
+        df = df.copy()
+        df[col_data] = pd.to_datetime(df[col_data], errors='coerce')
+        antes = len(df)
+        df = df[df[col_data] < cutoff]
+        print(f"[{nome_processo}] Filtro de data: {antes - len(df)} linhas removidas.")
+    except Exception as e:
+        print(f"[{nome_processo}] Aviso: filtro de data falhou: {e}")
+    return df
+
+
+def _comparar_dois_books(df_book1, df_book2, nome_aba_saida, workbook, data_corte=None):
+    """Compara dois DataFrames de book do mesmo tipo (Compra ou Venda) pela coluna Negócio."""
+    col_negocio = COLUNAS_BOOK_X_BOOK['negocio']
+    col_tipo    = COLUNAS_BOOK_X_BOOK['tipo_operacao']
+    col_nome    = COLUNAS_BOOK_X_BOOK['nome']
+    col_cnpj    = COLUNAS_BOOK_X_BOOK['cnpj']
+    col_valor   = COLUNAS_BOOK_X_BOOK['valor']
+
+    print(f"\n--- INICIANDO Confronto Book x Book: {nome_aba_saida} ---")
+
+    if df_book1.empty and df_book2.empty:
+        print(f"[Thunders Book x Book] {nome_aba_saida}: os dois books estão vazios, nada a comparar.")
+        return workbook
+
+    for nome_col in (col_negocio, col_valor):
+        if nome_col not in df_book1.columns or nome_col not in df_book2.columns:
+            print(f"[Thunders Book x Book] {nome_aba_saida}: coluna essencial '{nome_col}' não encontrada em um dos books.")
+            return workbook
+
+    df_book1 = _aplicar_corte_data(df_book1, f"Thunders Book x Book - {nome_aba_saida}", data_corte)
+    df_book2 = _aplicar_corte_data(df_book2, f"Thunders Book x Book - {nome_aba_saida}", data_corte)
+
+    d1 = df_book1.dropna(subset=[col_negocio]).copy()
+    d2 = df_book2.dropna(subset=[col_negocio]).copy()
+    d1[col_valor] = pd.to_numeric(d1[col_valor], errors='coerce').round(2)
+    d2[col_valor] = pd.to_numeric(d2[col_valor], errors='coerce').round(2)
+
+    d1['pairing_key'] = d1.groupby(col_negocio).cumcount()
+    d2['pairing_key'] = d2.groupby(col_negocio).cumcount()
+
+    merged = pd.merge(
+        d1, d2, on=[col_negocio, 'pairing_key'], how='outer', suffixes=('_1', '_2'), indicator=True
+    )
+
+    condicao_match = merged[f'{col_valor}_1'] == merged[f'{col_valor}_2']
+    divergencias = merged[~((merged['_merge'] == 'both') & condicao_match)].copy()
+
+    if divergencias.empty:
+        print(f"[Thunders Book x Book] {nome_aba_saida}: nenhuma divergência encontrada.")
+        return workbook
+
+    def _coalesce(base_col):
+        c1, c2 = f"{base_col}_1", f"{base_col}_2"
+        s1 = divergencias[c1] if c1 in divergencias.columns else pd.Series(index=divergencias.index, dtype=object)
+        s2 = divergencias[c2] if c2 in divergencias.columns else pd.Series(index=divergencias.index, dtype=object)
+        return s1.fillna(s2)
+
+    resultado = pd.DataFrame()
+    resultado['Negócio'] = divergencias[col_negocio]
+    resultado['Tipo de operação'] = _coalesce(col_tipo)
+    resultado['Negociante'] = _coalesce(col_nome)
+    resultado['CPF/CNPJ da contraparte'] = _coalesce(col_cnpj)
+    resultado['Valor NF (Book 1)'] = divergencias[f'{col_valor}_1']
+    resultado['Valor NF (Book 2)'] = divergencias[f'{col_valor}_2']
+    resultado['Diferença'] = (
+        pd.to_numeric(resultado['Valor NF (Book 2)'], errors='coerce').fillna(0)
+        - pd.to_numeric(resultado['Valor NF (Book 1)'], errors='coerce').fillna(0)
+    )
+
+    resultado.sort_values(by=['Negociante', 'Negócio'], inplace=True, na_position='last')
+    resultado.reset_index(drop=True, inplace=True)
+
+    print(f"[Thunders Book x Book] {nome_aba_saida}: {len(resultado)} divergências encontradas.")
+    return _formatar_aba_confronto_books(workbook, nome_aba_saida, resultado)
+
+
+def executar_confronto_book_x_book(workbook, arquivo_bytes, data_corte_compras=None, data_corte_vendas=None):
+    """Ponto de entrada: cruza BOOK 1 x BOOK 2 (Compras e Vendas separadamente) pela coluna Negócio.
+
+    O corte de data (opcional) é aplicado sobre a coluna 'Data de criação', removendo
+    registros com data igual ou posterior ao corte, antes do cruzamento.
+    """
+    if workbook is None:
+        return workbook
+
+    df1_compra, df1_venda, df2_compra, df2_venda = ler_books_para_confronto(arquivo_bytes)
+
+    workbook = _comparar_dois_books(
+        df1_compra, df2_compra, "Confronto Books Compras", workbook, data_corte=data_corte_compras
+    )
+    workbook = _comparar_dois_books(
+        df1_venda, df2_venda, "Confronto Books Vendas", workbook, data_corte=data_corte_vendas
+    )
+
+    return workbook

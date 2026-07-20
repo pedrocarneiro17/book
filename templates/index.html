@@ -105,23 +105,59 @@
                 <div id="instrucoesThunders" class="d-none">
                     <div class="instrucoes-box fade-in">
                         <h5 class="instrucoes-title">Instruções para o Modelo Thunders</h5>
-                        <p>Garanta que as abas do seu arquivo Excel estejam na seguinte ordem:</p>
-                        <ol class="list-group list-group-numbered list-group-flush mb-4">
-                            <li class="list-group-item">Livro de Entrada</li>
-                            <li class="list-group-item">Livro de Saída</li>
-                            <li class="list-group-item">Book(s)</li>
-                        </ol>
 
-                        <h6 class="text-primary mb-3">Filtros de Data (Opcional)</h6>
-                        <p class="small text-muted mb-3">Selecione uma data para ignorar todos os registros a partir dela.</p>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="data_corte_compras_t" class="form-label">Data de Corte Compras:</label>
-                                <input type="date" class="form-control" id="data_corte_compras_t" name="data_corte_compras">
+                        <div class="mb-3">
+                            <label class="form-label d-block">Tipo de Confronto</label>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="tipo_confronto_thunders" id="thundersLivroBook" value="livro_book" checked>
+                                <label class="form-check-label" for="thundersLivroBook">Livro x Book</label>
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="data_corte_vendas_t" class="form-label">Data de Corte Vendas:</label>
-                                <input type="date" class="form-control" id="data_corte_vendas_t" name="data_corte_vendas">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="tipo_confronto_thunders" id="thundersBookBook" value="book_book">
+                                <label class="form-check-label" for="thundersBookBook">Book x Book</label>
+                            </div>
+                        </div>
+
+                        <div id="thundersLivroBookInfo">
+                            <p>Garanta que as abas do seu arquivo Excel estejam na seguinte ordem:</p>
+                            <ol class="list-group list-group-numbered list-group-flush mb-4">
+                                <li class="list-group-item">Livro de Entrada</li>
+                                <li class="list-group-item">Livro de Saída</li>
+                                <li class="list-group-item">Book(s)</li>
+                            </ol>
+
+                            <h6 class="text-primary mb-3">Filtros de Data (Opcional)</h6>
+                            <p class="small text-muted mb-3">Selecione uma data para ignorar todos os registros a partir dela.</p>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="data_corte_compras_t" class="form-label">Data de Corte Compras:</label>
+                                    <input type="date" class="form-control" id="data_corte_compras_t" name="data_corte_compras">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="data_corte_vendas_t" class="form-label">Data de Corte Vendas:</label>
+                                    <input type="date" class="form-control" id="data_corte_vendas_t" name="data_corte_vendas">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="thundersBookBookInfo" class="d-none">
+                            <p>Garanta que as abas do seu arquivo Excel estejam na seguinte ordem:</p>
+                            <ol class="list-group list-group-numbered list-group-flush mb-4">
+                                <li class="list-group-item">Book 1</li>
+                                <li class="list-group-item">Book 2</li>
+                            </ol>
+
+                            <h6 class="text-primary mb-3">Filtros de Data (Opcional)</h6>
+                            <p class="small text-muted mb-3">Selecione uma data para ignorar todos os registros a partir dela (com base na Data de criação).</p>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="data_corte_compras_bxb" class="form-label">Data de Corte Compras:</label>
+                                    <input type="date" class="form-control" id="data_corte_compras_bxb" name="data_corte_compras_bxb">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="data_corte_vendas_bxb" class="form-label">Data de Corte Vendas:</label>
+                                    <input type="date" class="form-control" id="data_corte_vendas_bxb" name="data_corte_vendas_bxb">
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -193,6 +229,21 @@
                 alvo.classList.remove('d-none');
                 setTimeout(() => alvo.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
             }
+        });
+
+        // Alterna entre as instruções "Livro x Book" e "Book x Book" do Thunders
+        document.querySelectorAll('input[name="tipo_confronto_thunders"]').forEach(function(radio) {
+            radio.addEventListener('change', function() {
+                var divLivroBook = document.getElementById('thundersLivroBookInfo');
+                var divBookBook  = document.getElementById('thundersBookBookInfo');
+                if (this.value === 'book_book') {
+                    divLivroBook.classList.add('d-none');
+                    divBookBook.classList.remove('d-none');
+                } else {
+                    divBookBook.classList.add('d-none');
+                    divLivroBook.classList.remove('d-none');
+                }
+            });
         });
 
         // Lógica do botão de "Processando..."
