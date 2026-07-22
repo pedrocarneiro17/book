@@ -513,6 +513,7 @@ COLUNAS_BOOK_X_BOOK = {
     "cnpj": "CPF/CNPJ da contraparte",
     "valor": "Valor NF",
     "data_criacao": "Data de criação",
+    "data_fornecimento": "Data do fornecimento",
 }
 
 
@@ -585,6 +586,7 @@ def _formatar_aba_confronto_books(workbook, nome_aba, resultado_df):
     col_valor1 = colunas.index('Valor NF (Book 1)') + 1
     col_valor2 = colunas.index('Valor NF (Book 2)') + 1
     col_diferenca = colunas.index('Diferença') + 1
+    col_data_forn = colunas.index('Data do fornecimento') + 1 if 'Data do fornecimento' in colunas else None
 
     for _, row in resultado_df.iterrows():
         ws.append(row.tolist())
@@ -594,6 +596,10 @@ def _formatar_aba_confronto_books(workbook, nome_aba, resultado_df):
             if isinstance(cell.value, (int, float)):
                 cell.number_format = '#,##0.00'
                 cell.font = red_font if cell.value < 0 else data_font
+        if col_data_forn:
+            cell = ws.cell(row=r, column=col_data_forn)
+            if cell.value is not None:
+                cell.number_format = 'DD/MM/YYYY'
 
     if not resultado_df.empty:
         total_v1 = pd.to_numeric(resultado_df['Valor NF (Book 1)'], errors='coerce').sum()
@@ -686,10 +692,17 @@ def _comparar_dois_books(df_book1, df_book2, nome_aba_saida, workbook, data_cort
         s2 = divergencias[c2] if c2 in divergencias.columns else pd.Series(index=divergencias.index, dtype=object)
         return s1.fillna(s2)
 
+    col_data_forn = COLUNAS_BOOK_X_BOOK['data_fornecimento']
+    col_data_forn_2 = f"{col_data_forn}_2"
+
     resultado = pd.DataFrame()
     resultado['Negócio'] = divergencias[col_negocio]
     resultado['Tipo de operação'] = _coalesce(col_tipo)
     resultado['Negociante'] = _coalesce(col_nome)
+    resultado['Data do fornecimento'] = (
+        divergencias[col_data_forn_2] if col_data_forn_2 in divergencias.columns
+        else pd.Series(index=divergencias.index, dtype=object)
+    )
     resultado['CPF/CNPJ da contraparte'] = _coalesce(col_cnpj)
     resultado['Valor NF (Book 1)'] = divergencias[f'{col_valor}_1']
     resultado['Valor NF (Book 2)'] = divergencias[f'{col_valor}_2']
