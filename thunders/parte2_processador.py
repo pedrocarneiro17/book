@@ -686,23 +686,20 @@ def _comparar_dois_books(df_book1, df_book2, nome_aba_saida, workbook, data_cort
         print(f"[Thunders Book x Book] {nome_aba_saida}: nenhuma divergência encontrada.")
         return workbook
 
-    def _coalesce(base_col):
+    def _coalesce(base_col, preferir_2=False):
         c1, c2 = f"{base_col}_1", f"{base_col}_2"
         s1 = divergencias[c1] if c1 in divergencias.columns else pd.Series(index=divergencias.index, dtype=object)
         s2 = divergencias[c2] if c2 in divergencias.columns else pd.Series(index=divergencias.index, dtype=object)
-        return s1.fillna(s2)
+        return s2.fillna(s1) if preferir_2 else s1.fillna(s2)
 
     col_data_forn = COLUNAS_BOOK_X_BOOK['data_fornecimento']
-    col_data_forn_2 = f"{col_data_forn}_2"
 
     resultado = pd.DataFrame()
     resultado['Negócio'] = divergencias[col_negocio]
     resultado['Tipo de operação'] = _coalesce(col_tipo)
     resultado['Negociante'] = _coalesce(col_nome)
-    resultado['Data do fornecimento'] = (
-        divergencias[col_data_forn_2] if col_data_forn_2 in divergencias.columns
-        else pd.Series(index=divergencias.index, dtype=object)
-    )
+    # Prioriza a data do Book 2; se o negócio só existir no Book 1, usa a dele.
+    resultado['Data do fornecimento'] = _coalesce(col_data_forn, preferir_2=True)
     resultado['CPF/CNPJ da contraparte'] = _coalesce(col_cnpj)
     resultado['Valor NF (Book 1)'] = divergencias[f'{col_valor}_1']
     resultado['Valor NF (Book 2)'] = divergencias[f'{col_valor}_2']
