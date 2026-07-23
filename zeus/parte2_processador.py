@@ -62,8 +62,9 @@ def consolidar_book(arquivo_bytes):
     """Lê a aba do Book Zeus e separa em Compra e Venda pela coluna C/V."""
     xls = pd.ExcelFile(arquivo_bytes)
 
-    # Procura a aba do book (índice >= 2, ou qualquer aba que não seja ENTRADAS/SAÍDAS)
-    abas_book = [a for a in xls.sheet_names if a.upper() not in ('ENTRADAS', 'SAÍDAS', 'SAIDAS')]
+    # Abas de book: todas a partir da 3ª (índice >= 2), independente do nome.
+    # As duas primeiras abas são sempre Entrada e Saída, nessa ordem.
+    abas_book = xls.sheet_names[2:]
     if not abas_book:
         print("[Zeus] Nenhuma aba de book encontrada.")
         return pd.DataFrame(), pd.DataFrame()

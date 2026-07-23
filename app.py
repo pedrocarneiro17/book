@@ -342,8 +342,8 @@ def process():
                 file_bytes = uploaded_file.read()
 
                 workbook_resultado   = openpyxl.load_workbook(io.BytesIO(file_bytes), keep_links=False, data_only=True)
-                df_livro_entrada_raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name='ENTRADAS', skiprows=5, header=0)
-                df_livro_saida_raw   = pd.read_excel(io.BytesIO(file_bytes), sheet_name='SAÍDAS',   skiprows=5, header=0)
+                df_livro_entrada_raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=0, skiprows=5, header=0)
+                df_livro_saida_raw   = pd.read_excel(io.BytesIO(file_bytes), sheet_name=1, skiprows=5, header=0)
                 df_book_compra, df_book_venda = consolidar_book_zeus(io.BytesIO(file_bytes))
 
                 config_entrada_cnpj = {
